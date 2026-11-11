@@ -9,7 +9,7 @@ Personal food log, installable on Android as a web app.
 
 Run the logic tests: `node test.js`
 
-When `index.html` changes, bump `VERSION` in `sw.js` so installed phones pick up the new build.
+On every release, bump `APP_VERSION` in `index.html` (shown in the header) and `VERSION` in `sw.js`.
 
 ## Logging from a Claude chat (link format)
 

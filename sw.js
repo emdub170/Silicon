@@ -1,6 +1,6 @@
 // Silicon service worker: caches the app shell so it opens with no connection.
-// Bump VERSION whenever index.html changes so phones pick up the new build.
-const VERSION = 'silicon-v2';
+// Bump VERSION here and APP_VERSION in index.html on every release.
+const VERSION = 'silicon-v3';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -21,7 +21,7 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // Network first so updates land; fall back to cache when offline.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request.url, { cache: 'no-cache' }) // skip the browser's HTTP cache so releases show up right away
       .then(r => {
         const copy = r.clone();
         caches.open(VERSION).then(c => c.put(e.request, copy));

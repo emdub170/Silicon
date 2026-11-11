@@ -53,10 +53,11 @@ td.none{color:var(--dim)}
 </style>
 </head>
 <body>
-<div class="top"><h1>Silicon</h1><button class="sm" id="bWeek">Week / Export</button></div>
+<div class="top"><h1>Silicon <span id="ver" style="font-size:12px;color:var(--dim);font-weight:400"></span></h1><button class="sm" id="bWeek">Week / Export</button></div>
 <div class="datebar"><button id="bPrev" aria-label="Previous day">&#8249;</button><div class="d" id="dLabel"></div><button id="bNext" aria-label="Next day">&#8250;</button></div>
 <div class="totals" id="totals"></div>
 <div id="list"></div>
+<div id="bk" class="hint" style="text-align:center;margin-top:14px"></div>
 <div class="bar"><div class="in">
   <button class="pri" id="bScan">Scan</button>
   <button id="bFoods">My foods</button>
@@ -164,6 +165,7 @@ if(typeof module!=='undefined')module.exports={parseImport,calcCal,ymd,shiftDay,
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
+const APP_VERSION='1.2';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -179,7 +181,10 @@ function render(){const today=ymd(new Date());
   $('dLabel').textContent=day===today?'Today':day===shiftDay(today,-1)?'Yesterday':new Date(day+'T12:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
   const list=entries.filter(e=>e.date===day).sort((a,b)=>a.time.localeCompare(b.time)),t=sumEntries(list);
   $('totals').innerHTML=[['cal','Cal',t.cal],['','Protein',t.p],['','Fat',t.f],['','Carbs',t.c],['','Alc g',t.a]].map(x=>'<div class="tot '+x[0]+'"><b>'+x[2]+'</b><span>'+x[1]+'</span></div>').join('');
-  $('list').innerHTML=list.length?list.map(e=>'<div class="item" data-e="'+esc(e.id)+'"><div><div class="n">'+esc(e.name)+'</div><div class="m">'+e.servings+' × · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+(e.alcohol_g?' A'+e.alcohol_g:'')+'</div></div><div class="c">'+e.calories+'</div></div>').join(''):'<div class="empty">Nothing logged. Scan, pick from My foods, or add manually.</div>'}
+  $('list').innerHTML=list.length?list.map(e=>'<div class="item" data-e="'+esc(e.id)+'"><div><div class="n">'+esc(e.name)+'</div><div class="m">'+e.servings+' × · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+(e.alcohol_g?' A'+e.alcohol_g:'')+'</div></div><div class="c">'+e.calories+'</div></div>').join(''):'<div class="empty">Nothing logged. Scan, pick from My foods, or add manually.</div>';
+  const lb=store.get('si_lastBackup',0),bd=lb?Math.floor((Date.now()-lb)/864e5):-1,bk=$('bk');
+  bk.textContent=!entries.length?'':lb?'Last backup: '+(bd===0?'today':bd+' day'+(bd===1?'':'s')+' ago')+(bd>=7?' — tap to back up':''):'No backup yet — tap to save one';
+  bk.className=(!lb||bd>=7)?'note':'hint';$('ver').textContent='v'+APP_VERSION}
 
 function log(food,qty,source){entries.push(makeEntry(food,qty,day,nowTime(),source));if(food.id&&foods[food.id]){foods[food.id].lastUsed=Date.now();foods[food.id].count=(foods[food.id].count||0)+1}save();render()}
 
@@ -233,10 +238,10 @@ function renderWeek(){const w=weekSummary(entries,day);$('wRange').textContent=s
     return d.n?'<tr><td>'+lbl+'</td><td>'+d.cal+'</td><td>'+d.p+'</td><td>'+d.f+'</td><td>'+d.c+'</td><td>'+d.a+'</td></tr>':'<tr><td>'+lbl+'</td><td class="none" colspan="5">not logged</td></tr>'}).join('')+
     '<tr class="avg"><td>Avg ('+w.logged+'d)</td><td>'+w.avg.cal+'</td><td>'+w.avg.p+'</td><td>'+w.avg.f+'</td><td>'+w.avg.c+'</td><td>'+w.avg.a+'</td></tr>'}
 function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}
-async function shareFile(name,text,type){try{const f=new File([text],name,{type});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}}catch(e){if(e.name==='AbortError')return}download(name,text,type)}
+async function shareFile(name,text,type){try{const f=new File([text],name,{type});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return true}}catch(e){if(e.name==='AbortError')return false}download(name,text,type);return true}
 $('wShare').onclick=()=>shareFile('food-log_'+shiftDay(day,-6)+'_to_'+day+'.csv',toCSV(entries,day),'text/csv');
 $('wCopy').onclick=async()=>{const t=summaryText(entries,day);try{await navigator.clipboard.writeText(t);toast('Summary copied')}catch(e){shareFile('food-summary_'+day+'.txt',t,'text/plain')}};
-$('wBackup').onclick=()=>shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods}),'application/json');
+$('wBackup').onclick=async()=>{if(await shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods}),'application/json')){store.set('si_lastBackup',Date.now());render()}};
 $('wRestore').onclick=()=>$('wFile').click();
 $('wFile').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.entries)||typeof j.foods!=='object')throw 0;
     const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
@@ -260,7 +265,7 @@ $('bNext').onclick=()=>{if(day<ymd(new Date())){day=shiftDay(day,1);render()}};
 $('bScan').onclick=startScan;
 $('bManual').onclick=()=>showForm({},{title:'Add food',source:'manual'});
 $('bFoods').onclick=()=>{$('qFoods').value='';renderFoods();open('sFoods')};
-$('bWeek').onclick=()=>{renderWeek();open('sWeek')};
+$('bWeek').onclick=$('bk').onclick=()=>{renderWeek();open('sWeek')};
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>open(null));
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopScan()});
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
