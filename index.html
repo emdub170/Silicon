@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14181c">
+<title>Silicon</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#14181c;--card:#1e242a;--line:#2e363e;--text:#e8ecef;--dim:#93a0ab;--acc:#5cc8a1;--warn:#e0a458;--bad:#e06c6c}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{padding:12px 12px 150px;max-width:560px;margin:0 auto}
+h1{font-size:18px;margin:0}
+button{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-height:48px;cursor:pointer}
+button.pri{background:var(--acc);color:#0c1512;border-color:var(--acc);font-weight:600}
+button.bad{color:var(--bad)}
+button.sm{min-height:40px;padding:8px 12px}
+input{font:inherit;color:var(--text);background:#10141a;border:1px solid var(--line);border-radius:8px;padding:11px;width:100%;min-height:46px}
+label{display:block;font-size:13px;color:var(--dim);margin:10px 0 4px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.datebar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.datebar button{flex:0 0 48px}
+.datebar .d{flex:1;text-align:center;font-weight:600}
+.totals{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:12px}
+.tot{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center}
+.tot b{display:block;font-size:19px}
+.tot span{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
+.tot.cal b{color:var(--acc)}
+.item{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.item .n{font-weight:600;overflow-wrap:anywhere}
+.item .m{font-size:13px;color:var(--dim)}
+.item .c{font-weight:600;white-space:nowrap}
+.empty{color:var(--dim);text-align:center;padding:28px 8px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(transparent,var(--bg) 22%);padding:22px 12px calc(12px + env(safe-area-inset-bottom))}
+.bar .in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.sheet{position:fixed;inset:0;background:var(--bg);overflow:auto;padding:12px 12px 40px;display:none;z-index:5}
+.sheet.on{display:block}
+.sheet .in{max-width:560px;margin:0 auto}
+.note{font-size:13px;color:var(--warn);margin:8px 0}
+.hint{font-size:13px;color:var(--dim);margin:8px 0}
+video{width:100%;border-radius:10px;background:#000;max-height:50vh;object-fit:cover}
+table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
+th,td{padding:7px 4px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--dim);font-weight:500;font-size:12px}
+tr.avg td{font-weight:700;border-bottom:none}
+td.none{color:var(--dim)}
+#toast{position:fixed;left:50%;bottom:160px;transform:translateX(-50%);background:#000;border:1px solid var(--line);padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:9}
+</style>
+</head>
+<body>
+<div class="top"><h1>Silicon</h1><button class="sm" id="bWeek">Week / Export</button></div>
+<div class="datebar"><button id="bPrev" aria-label="Previous day">&#8249;</button><div class="d" id="dLabel"></div><button id="bNext" aria-label="Next day">&#8250;</button></div>
+<div class="totals" id="totals"></div>
+<div id="list"></div>
+<div class="bar"><div class="in">
+  <button class="pri" id="bScan">Scan</button>
+  <button id="bFoods">My foods</button>
+  <button id="bManual">Manual</button>
+</div></div>
+
+<div class="sheet" id="sForm"><div class="in">
+  <div class="top"><h1 id="fTitle">Add food</h1><button class="sm" data-close>Cancel</button></div>
+  <div class="note" id="fNote"></div>
+  <label>Name</label><input id="fName" autocomplete="off">
+  <div class="row">
+    <div><label>Serving (label)</label><input id="fServing" placeholder="1 bar, 100 g..."></div>
+    <div><label>Servings eaten</label><input id="fQty" type="number" inputmode="decimal" step="any" value="1"></div>
+  </div>
+  <div class="hint">Per serving:</div>
+  <div class="row">
+    <div><label>Protein g</label><input id="fP" type="number" inputmode="decimal" step="any"></div>
+    <div><label>Fat g</label><input id="fF" type="number" inputmode="decimal" step="any"></div>
+    <div><label>Carbs g</label><input id="fC" type="number" inputmode="decimal" step="any"></div>
+  </div>
+  <div class="row">
+    <div><label>Alcohol g</label><input id="fA" type="number" inputmode="decimal" step="any"></div>
+    <div><label>Calories</label><input id="fCal" type="number" inputmode="decimal" step="any" placeholder="auto"></div>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="sm" id="fDrink">+1 standard drink (14 g alcohol)</button></div>
+  <div class="hint">Calories left blank = 4P + 4C + 9F + 7A. Saved to My foods for one-tap logging next time.</div>
+  <div class="row" style="margin-top:14px"><button class="pri" id="fSave">Log it</button></div>
+</div></div>
+
+<div class="sheet" id="sFoods"><div class="in">
+  <div class="top"><h1>My foods</h1><button class="sm" data-close>Close</button></div>
+  <input id="qFoods" placeholder="Search" autocomplete="off">
+  <div class="hint">+ logs one serving. Tap the name to change servings.</div>
+  <div id="foodList"></div>
+</div></div>
+
+<div class="sheet" id="sScan"><div class="in">
+  <div class="top"><h1>Scan barcode</h1><button class="sm" data-close>Cancel</button></div>
+  <video id="vid" playsinline muted></video>
+  <div class="note" id="scanNote"></div>
+  <label>Or type the barcode number</label>
+  <div class="row"><input id="codeIn" inputmode="numeric" style="flex:3"><button id="codeGo">Look up</button></div>
+</div></div>
+
+<div class="sheet" id="sEntry"><div class="in">
+  <div class="top"><h1 id="eName"></h1><button class="sm" data-close>Close</button></div>
+  <div class="hint" id="eInfo"></div>
+  <div class="row"><button id="eAgain">Log again today</button><button class="bad" id="eDel">Delete</button></div>
+</div></div>
+
+<div class="sheet" id="sWeek"><div class="in">
+  <div class="top"><h1>7 days</h1><button class="sm" data-close>Close</button></div>
+  <div class="hint" id="wRange"></div>
+  <table id="wTable"></table>
+  <div class="hint">Average counts logged days only. Missed days are skipped, not zeros.</div>
+  <div class="row"><button class="pri" id="wShare">Share CSV</button><button id="wCopy">Copy summary</button></div>
+  <label style="margin-top:22px">Backup (data lives only on this phone)</label>
+  <div class="row"><button id="wBackup">Save backup</button><button id="wRestore">Restore</button></div>
+  <input type="file" id="wFile" accept=".json,application/json" style="display:none">
+</div></div>
+<div id="toast"></div>
+
+<script>
+/* ---------- pure logic (also run under node for tests) ---------- */
+function num(v){const n=parseFloat(v);return isFinite(n)?n:0}
+function r1(n){return Math.round(n*10)/10}
+function calcCal(p,c,f,a){return Math.round(4*p+4*c+9*f+7*a)}
+function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function shiftDay(s,n){const [y,m,d]=s.split('-').map(Number);return ymd(new Date(y,m-1,d+n))}
+function sumEntries(list){const t={cal:0,p:0,f:0,c:0,a:0,n:list.length};for(const e of list){t.cal+=e.calories;t.p+=e.protein_g;t.f+=e.fat_g;t.c+=e.carbs_g;t.a+=e.alcohol_g}
+  t.cal=Math.round(t.cal);t.p=r1(t.p);t.f=r1(t.f);t.c=r1(t.c);t.a=r1(t.a);return t}
+function weekSummary(entries,end){const days=[];for(let i=6;i>=0;i--){const d=shiftDay(end,-i);days.push(Object.assign({date:d},sumEntries(entries.filter(e=>e.date===d))))}
+  const lg=days.filter(d=>d.n>0),k=lg.length||1,avg={cal:0,p:0,f:0,c:0,a:0};
+  for(const d of lg){avg.cal+=d.cal;avg.p+=d.p;avg.f+=d.f;avg.c+=d.c;avg.a+=d.a}
+  return {days,logged:lg.length,avg:{cal:Math.round(avg.cal/k),p:r1(avg.p/k),f:r1(avg.f/k),c:r1(avg.c/k),a:r1(avg.a/k)}}}
+function csvCell(v){v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function toCSV(entries,end){const start=shiftDay(end,-6);
+  const rows=entries.filter(e=>e.date>=start&&e.date<=end).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  const out=['date,time,name,servings,calories,protein_g,fat_g,carbs_g,alcohol_g,source'];
+  for(const e of rows)out.push([e.date,e.time,e.name,e.servings,e.calories,e.protein_g,e.fat_g,e.carbs_g,e.alcohol_g,e.source].map(csvCell).join(','));
+  return out.join('\n')+'\n'}
+function summaryText(entries,end){const w=weekSummary(entries,end),L=['Food log '+shiftDay(end,-6)+' to '+end,'date | cal | P | F | C | alcohol g'];
+  for(const d of w.days)L.push(d.n?[d.date,d.cal,d.p,d.f,d.c,d.a].join(' | '):d.date+' | not logged');
+  L.push('Avg of '+w.logged+' logged day'+(w.logged===1?'':'s')+' | '+[w.avg.cal,w.avg.p,w.avg.f,w.avg.c,w.avg.a].join(' | '));return L.join('\n')}
+function parseOFF(j){if(!j||j.status!==1||!j.product)return null;const p=j.product,n=p.nutriments||{};
+  const suf=(n['energy-kcal_serving']!=null||n['proteins_serving']!=null)?'_serving':'_100g';
+  const g=k=>n[k+suf];if(g('energy-kcal')==null&&g('proteins')==null&&g('fat')==null&&g('carbohydrates')==null)return null;
+  const name=[p.brands?String(p.brands).split(',')[0].trim():'',p.product_name||''].filter(Boolean).join(' ').trim()||'Scanned item';
+  return {name,serving:suf==='_serving'?(p.serving_size||'1 serving'):'100 g',protein_g:r1(num(g('proteins'))),fat_g:r1(num(g('fat'))),carbs_g:r1(num(g('carbohydrates'))),alcohol_g:0,
+    calories:g('energy-kcal')!=null?Math.round(num(g('energy-kcal'))):calcCal(num(g('proteins')),num(g('carbohydrates')),num(g('fat')),0)}}
+function makeEntry(food,qty,date,time,source){const q=num(qty)||1;return {id:date+'-'+Date.now()+'-'+Math.floor(Math.random()*1e4),date,time,name:food.name,servings:q,foodId:food.id||'',
+  calories:Math.round(food.calories*q),protein_g:r1(food.protein_g*q),fat_g:r1(food.fat_g*q),carbs_g:r1(food.carbs_g*q),alcohol_g:r1(food.alcohol_g*q),source}}
+if(typeof module!=='undefined')module.exports={calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
+
+/* ---------- app ---------- */
+if(typeof document!=='undefined'){(function(){
+const mem={};
+const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
+  set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let entries=store.get('si_entries',[]),foods=store.get('si_foods',{}),day=ymd(new Date()),pending=null,curEntry=null,stream=null,scanning=false;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const save=()=>{store.set('si_entries',entries);store.set('si_foods',foods)};
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',1800)}
+function open(id){document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));if(id)$(id).classList.add('on');if(id!=='sScan')stopScan()}
+function nowTime(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
+
+function render(){const today=ymd(new Date());
+  $('dLabel').textContent=day===today?'Today':day===shiftDay(today,-1)?'Yesterday':new Date(day+'T12:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
+  const list=entries.filter(e=>e.date===day).sort((a,b)=>a.time.localeCompare(b.time)),t=sumEntries(list);
+  $('totals').innerHTML=[['cal','Cal',t.cal],['','Protein',t.p],['','Fat',t.f],['','Carbs',t.c],['','Alc g',t.a]].map(x=>'<div class="tot '+x[0]+'"><b>'+x[2]+'</b><span>'+x[1]+'</span></div>').join('');
+  $('list').innerHTML=list.length?list.map(e=>'<div class="item" data-e="'+esc(e.id)+'"><div><div class="n">'+esc(e.name)+'</div><div class="m">'+e.servings+' × · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+(e.alcohol_g?' A'+e.alcohol_g:'')+'</div></div><div class="c">'+e.calories+'</div></div>').join(''):'<div class="empty">Nothing logged. Scan, pick from My foods, or add manually.</div>'}
+
+function log(food,qty,source){entries.push(makeEntry(food,qty,day,nowTime(),source));if(food.id&&foods[food.id]){foods[food.id].lastUsed=Date.now();foods[food.id].count=(foods[food.id].count||0)+1}save();render()}
+
+function showForm(food,opts){pending=opts||{};$('fTitle').textContent=pending.title||'Add food';$('fNote').textContent=pending.note||'';
+  $('fName').value=food.name||'';$('fServing').value=food.serving||'';$('fQty').value=1;
+  $('fP').value=food.protein_g??'';$('fF').value=food.fat_g??'';$('fC').value=food.carbs_g??'';$('fA').value=food.alcohol_g||'';$('fCal').value=food.calories??'';
+  open('sForm')}
+$('fDrink').onclick=()=>{$('fA').value=r1(num($('fA').value)+14);$('fCal').value=''};
+$('fSave').onclick=()=>{const name=$('fName').value.trim();if(!name){toast('Name it first');return}
+  const p=num($('fP').value),f=num($('fF').value),c=num($('fC').value),a=num($('fA').value);
+  const cal=$('fCal').value===''?calcCal(p,c,f,a):Math.round(num($('fCal').value));
+  const id=pending.id||(pending.barcode?'b:'+pending.barcode:'m:'+name.toLowerCase());
+  const food={id,name,serving:$('fServing').value.trim()||'1 serving',calories:cal,protein_g:p,fat_g:f,carbs_g:c,alcohol_g:a,barcode:pending.barcode||(foods[id]&&foods[id].barcode)||'',count:(foods[id]&&foods[id].count)||0,lastUsed:Date.now()};
+  foods[id]=food;log(food,$('fQty').value,pending.source||'manual');open(null);toast('Logged')};
+
+function renderFoods(){const q=$('qFoods').value.trim().toLowerCase();
+  const fl=Object.values(foods).filter(f=>!q||f.name.toLowerCase().includes(q)).sort((a,b)=>(b.lastUsed||0)-(a.lastUsed||0));
+  $('foodList').innerHTML=fl.length?fl.map(f=>'<div class="item"><div data-f="'+esc(f.id)+'" style="flex:1"><div class="n">'+esc(f.name)+'</div><div class="m">'+esc(f.serving)+' · '+f.calories+' cal · P'+f.protein_g+' F'+f.fat_g+' C'+f.carbs_g+(f.alcohol_g?' A'+f.alcohol_g:'')+'</div></div><button class="sm pri" data-q="'+esc(f.id)+'" style="flex:0 0 48px">+</button></div>').join(''):'<div class="empty">'+(q?'No match.':'Foods you scan or enter show up here.')+'</div>'}
+$('qFoods').oninput=renderFoods;
+$('foodList').onclick=ev=>{const q=ev.target.closest('[data-q]'),f=ev.target.closest('[data-f]');
+  if(q){const fd=foods[q.dataset.q];log(fd,1,fd.barcode?'barcode':'manual');renderFoods();toast('Logged '+fd.name)}
+  else if(f){const fd=foods[f.dataset.f];showForm(fd,{id:fd.id,barcode:fd.barcode,title:'Log food',source:fd.barcode?'barcode':'manual'})}};
+
+$('list').onclick=ev=>{const it=ev.target.closest('[data-e]');if(!it)return;curEntry=entries.find(e=>e.id===it.dataset.e);if(!curEntry)return;
+  $('eName').textContent=curEntry.name;$('eInfo').textContent=curEntry.date+' '+curEntry.time+' · '+curEntry.servings+' × · '+curEntry.calories+' cal · P'+curEntry.protein_g+' F'+curEntry.fat_g+' C'+curEntry.carbs_g+' A'+curEntry.alcohol_g;open('sEntry')};
+$('eDel').onclick=()=>{entries=entries.filter(e=>e!==curEntry);save();render();open(null);toast('Deleted')};
+$('eAgain').onclick=()=>{const e=Object.assign({},curEntry,{id:day+'-'+Date.now(),date:ymd(new Date()),time:nowTime()});entries.push(e);day=e.date;save();render();open(null);toast('Logged')};
+
+/* scanner */
+function stopScan(){scanning=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
+async function startScan(){open('sScan');$('codeIn').value='';$('scanNote').textContent='';
+  if(!('BarcodeDetector' in window)||!navigator.mediaDevices){$('scanNote').textContent='Camera scanning is not available in this browser. Type the barcode number below.';return}
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});const v=$('vid');v.srcObject=stream;await v.play();
+    const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});scanning=true;
+    while(scanning){let codes=[];try{codes=await det.detect(v)}catch(e){}
+      if(codes.length&&scanning){const code=codes[0].rawValue;stopScan();lookup(code);return}
+      await new Promise(r=>setTimeout(r,250))}
+  }catch(e){$('scanNote').textContent='Could not open the camera ('+(e.name||'error')+'). Type the barcode number below.'}}
+async function fetchOFF(code){const r=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands,serving_size,nutriments');return parseOFF(await r.json())}
+async function lookup(code){code=String(code).replace(/\D/g,'');if(!code){toast('No barcode');return}
+  const known=foods['b:'+code];if(known){showForm(known,{id:known.id,barcode:code,title:'Log food',source:'barcode'});return}
+  $('scanNote').textContent='Looking up '+code+'...';let food=null,offline=false;
+  try{food=await fetchOFF(code);if(!food&&code.length===12)food=await fetchOFF('0'+code)}catch(e){offline=true}
+  if(food)showForm(food,{barcode:code,title:'Check against the label',source:'barcode',note:'From a crowdsourced database. Fix anything that does not match the label; your version is what gets saved.'});
+  else showForm({},{barcode:code,title:'New product',source:'label',note:(offline?'No connection. ':'Not in the database. ')+'Enter it from the label once; this barcode will scan instantly next time.'})}
+$('codeGo').onclick=()=>{stopScan();lookup($('codeIn').value)};
+
+/* week + export */
+function renderWeek(){const w=weekSummary(entries,day);$('wRange').textContent=shiftDay(day,-6)+' to '+day+' (ends on the day selected on the main screen)';
+  $('wTable').innerHTML='<tr><th>Day</th><th>Cal</th><th>P</th><th>F</th><th>C</th><th>Alc</th></tr>'+w.days.map(d=>{const lbl=new Date(d.date+'T12:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric'});
+    return d.n?'<tr><td>'+lbl+'</td><td>'+d.cal+'</td><td>'+d.p+'</td><td>'+d.f+'</td><td>'+d.c+'</td><td>'+d.a+'</td></tr>':'<tr><td>'+lbl+'</td><td class="none" colspan="5">not logged</td></tr>'}).join('')+
+    '<tr class="avg"><td>Avg ('+w.logged+'d)</td><td>'+w.avg.cal+'</td><td>'+w.avg.p+'</td><td>'+w.avg.f+'</td><td>'+w.avg.c+'</td><td>'+w.avg.a+'</td></tr>'}
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}
+async function shareFile(name,text,type){try{const f=new File([text],name,{type});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}}catch(e){if(e.name==='AbortError')return}download(name,text,type)}
+$('wShare').onclick=()=>shareFile('food-log_'+shiftDay(day,-6)+'_to_'+day+'.csv',toCSV(entries,day),'text/csv');
+$('wCopy').onclick=async()=>{const t=summaryText(entries,day);try{await navigator.clipboard.writeText(t);toast('Summary copied')}catch(e){shareFile('food-summary_'+day+'.txt',t,'text/plain')}};
+$('wBackup').onclick=()=>shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods}),'application/json');
+$('wRestore').onclick=()=>$('wFile').click();
+$('wFile').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.entries)||typeof j.foods!=='object')throw 0;
+    const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
+
+/* wiring */
+$('bPrev').onclick=()=>{day=shiftDay(day,-1);render()};
+$('bNext').onclick=()=>{if(day<ymd(new Date())){day=shiftDay(day,1);render()}};
+$('bScan').onclick=startScan;
+$('bManual').onclick=()=>showForm({},{title:'Add food',source:'manual'});
+$('bFoods').onclick=()=>{$('qFoods').value='';renderFoods();open('sFoods')};
+$('bWeek').onclick=()=>{renderWeek();open('sWeek')};
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>open(null));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopScan()});
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+try{if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js')}catch(e){}
+render();
+})()}
+</script>
+</body>
+</html>
