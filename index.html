@@ -117,6 +117,13 @@ td.none{color:var(--dim)}
   <div class="row"><button id="wBackup">Save backup</button><button id="wRestore">Restore</button></div>
   <input type="file" id="wFile" accept=".json,application/json" style="display:none">
 </div></div>
+<div class="sheet" id="sImport"><div class="in">
+  <div class="top"><h1>From Claude</h1><button class="sm" data-close>Cancel</button></div>
+  <div class="note">Estimates. Check they look right before logging.</div>
+  <div class="hint" id="iInfo"></div>
+  <div id="iList"></div>
+  <div class="row" style="margin-top:14px"><button class="pri" id="iGo">Log all</button></div>
+</div></div>
 <div id="toast"></div>
 
 <script>
@@ -149,7 +156,11 @@ function parseOFF(j){if(!j||j.status!==1||!j.product)return null;const p=j.produ
     calories:g('energy-kcal')!=null?Math.round(num(g('energy-kcal'))):calcCal(num(g('proteins')),num(g('carbohydrates')),num(g('fat')),0)}}
 function makeEntry(food,qty,date,time,source){const q=num(qty)||1;return {id:date+'-'+Date.now()+'-'+Math.floor(Math.random()*1e4),date,time,name:food.name,servings:q,foodId:food.id||'',
   calories:Math.round(food.calories*q),protein_g:r1(food.protein_g*q),fat_g:r1(food.fat_g*q),carbs_g:r1(food.carbs_g*q),alcohol_g:r1(food.alcohol_g*q),source}}
-if(typeof module!=='undefined')module.exports={calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
+/* Claude link format: name;protein;fat;carbs;alcohol;calories  -- items separated by |  (calories optional) */
+function parseImport(s){const out=[];for(const part of String(s||'').split('|')){const f=part.split(';').map(x=>x.trim());if(!f[0])continue;
+  const p=num(f[1]),fa=num(f[2]),c=num(f[3]),a=num(f[4]);
+  out.push({name:f[0],serving:'1 serving',protein_g:r1(p),fat_g:r1(fa),carbs_g:r1(c),alcohol_g:r1(a),calories:(f[5]!==undefined&&f[5]!=='')?Math.round(num(f[5])):calcCal(p,c,fa,a)})}return out}
+if(typeof module!=='undefined')module.exports={parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
@@ -230,6 +241,19 @@ $('wRestore').onclick=()=>$('wFile').click();
 $('wFile').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.entries)||typeof j.foods!=='object')throw 0;
     const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
 
+/* link import: .../#add=name;P;F;C;A;cal|name;...&date=YYYY-MM-DD */
+let imp=null;
+function checkLink(){let q;try{q=new URLSearchParams(location.hash.slice(1))}catch(e){return}const s=q.get('add');if(!s)return;
+  const items=parseImport(s);try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
+  if(!items.length)return;const d=q.get('date');if(d&&/^\d{4}-\d\d-\d\d$/.test(d)&&d<=ymd(new Date()))day=d;imp=items;render();
+  const t=sumEntries(items.map(f=>makeEntry(f,1,day,'','')));
+  $('iInfo').textContent='Logging to '+day+' · total '+t.cal+' cal · P'+t.p+' F'+t.f+' C'+t.c+(t.a?' A'+t.a:'');
+  $('iList').innerHTML=items.map(f=>'<div class="item"><div><div class="n">'+esc(f.name)+'</div><div class="m">P'+f.protein_g+' F'+f.fat_g+' C'+f.carbs_g+(f.alcohol_g?' A'+f.alcohol_g:'')+'</div></div><div class="c">'+f.calories+'</div></div>').join('');
+  open('sImport')}
+$('iGo').onclick=()=>{if(!imp)return;for(const f of imp){const id='m:'+f.name.toLowerCase();const food=Object.assign({id,barcode:'',count:(foods[id]&&foods[id].count)||0},f);foods[id]=food;log(food,1,'estimate')}
+  const n=imp.length;imp=null;open(null);toast('Logged '+n+' item'+(n===1?'':'s'))};
+window.addEventListener('hashchange',checkLink);
+
 /* wiring */
 $('bPrev').onclick=()=>{day=shiftDay(day,-1);render()};
 $('bNext').onclick=()=>{if(day<ymd(new Date())){day=shiftDay(day,1);render()}};
@@ -241,7 +265,7 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>open(null));
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopScan()});
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 try{if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js')}catch(e){}
-render();
+render();checkLink();
 })()}
 </script>
 </body>

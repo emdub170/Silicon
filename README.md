@@ -10,3 +10,14 @@ Personal food log, installable on Android as a web app.
 Run the logic tests: `node test.js`
 
 When `index.html` changes, bump `VERSION` in `sw.js` so installed phones pick up the new build.
+
+## Logging from a Claude chat (link format)
+
+Claude resolves a described meal into macros and replies with a link. Tapping it opens the app with a confirm screen.
+
+    https://emdub170.github.io/Silicon/#add=<items>&date=YYYY-MM-DD
+
+- `<items>`: `name;protein_g;fat_g;carbs_g;alcohol_g;calories`, items separated by `|`, the whole value URL-encoded
+- `calories` is optional (blank = 4P + 4C + 9F + 7A); `date` is optional (default = the day open in the app)
+- Names must not contain `;` or `|`
+- Entries are logged with source `estimate`

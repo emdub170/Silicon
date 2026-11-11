@@ -46,3 +46,12 @@ assert.strictEqual(L.parseOFF({ status: 0 }), null);
 assert.strictEqual(L.parseOFF({ status: 1, product: { product_name: 'Empty', nutriments: {} } }), null);
 
 console.log('all logic tests passed');
+
+// Claude link import
+const imp = L.parseImport('Grilled chicken 6 oz;53;6;0;0;270|Rice 1 cup;4;0.4;45;0|Margarita;0;0;12;14;; |');
+assert.strictEqual(imp.length, 3);
+assert.deepStrictEqual(imp[0], { name: 'Grilled chicken 6 oz', serving: '1 serving', protein_g: 53, fat_g: 6, carbs_g: 0, alcohol_g: 0, calories: 270 });
+assert.strictEqual(imp[1].calories, 200); // 4*4 + 4*45 + 9*0.4 = 199.6
+assert.strictEqual(imp[2].calories, 146); // 48 + 98, blank calories field
+assert.deepStrictEqual(L.parseImport(''), []);
+console.log('import tests passed');
