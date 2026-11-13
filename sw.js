@@ -1,6 +1,6 @@
 // Silicon service worker: caches the app shell so it opens with no connection.
 // Bump VERSION here and APP_VERSION in index.html on every release.
-const VERSION = 'silicon-v3';
+const VERSION = 'silicon-v4';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

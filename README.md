@@ -17,7 +17,8 @@ Claude resolves a described meal into macros and replies with a link. Tapping it
 
     https://emdub170.github.io/Silicon/#add=<items>&date=YYYY-MM-DD
 
-- `<items>`: `name;protein_g;fat_g;carbs_g;alcohol_g;calories`, items separated by `|`, the whole value URL-encoded
+- `<items>`: `name;protein_g;fat_g;carbs_g;alcohol_g;calories;r`, items separated by `|`, the whole value URL-encoded
+- trailing `;r` is optional and files the food under Recipes in My foods
 - `calories` is optional (blank = 4P + 4C + 9F + 7A); `date` is optional (default = the day open in the app)
 - Names must not contain `;` or `|`
 - Entries are logged with source `estimate`

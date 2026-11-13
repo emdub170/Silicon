@@ -84,12 +84,15 @@ td.none{color:var(--dim)}
   </div>
   <div class="row" style="margin-top:8px"><button class="sm" id="fDrink">+1 standard drink (14 g alcohol)</button></div>
   <div class="hint">Calories left blank = 4P + 4C + 9F + 7A. Saved to My foods for one-tap logging next time.</div>
+  <label style="display:flex;align-items:center;gap:10px;margin-top:14px;color:var(--text);font-size:15px"><input type="checkbox" id="fRecipe" style="width:22px;height:22px;min-height:22px;flex:0 0 22px"> Recipe / home-cooked</label>
   <div class="row" style="margin-top:14px"><button class="pri" id="fSave">Log it</button></div>
+  <div class="row" style="margin-top:10px"><button class="bad" id="fRemove" style="display:none">Remove from My foods</button></div>
 </div></div>
 
 <div class="sheet" id="sFoods"><div class="in">
   <div class="top"><h1>My foods</h1><button class="sm" data-close>Close</button></div>
   <input id="qFoods" placeholder="Search" autocomplete="off">
+  <div class="row" id="chips" style="margin-top:8px"></div>
   <div class="hint">+ logs one serving. Tap the name to change servings.</div>
   <div id="foodList"></div>
 </div></div>
@@ -157,15 +160,16 @@ function parseOFF(j){if(!j||j.status!==1||!j.product)return null;const p=j.produ
     calories:g('energy-kcal')!=null?Math.round(num(g('energy-kcal'))):calcCal(num(g('proteins')),num(g('carbohydrates')),num(g('fat')),0)}}
 function makeEntry(food,qty,date,time,source){const q=num(qty)||1;return {id:date+'-'+Date.now()+'-'+Math.floor(Math.random()*1e4),date,time,name:food.name,servings:q,foodId:food.id||'',
   calories:Math.round(food.calories*q),protein_g:r1(food.protein_g*q),fat_g:r1(food.fat_g*q),carbs_g:r1(food.carbs_g*q),alcohol_g:r1(food.alcohol_g*q),source}}
-/* Claude link format: name;protein;fat;carbs;alcohol;calories  -- items separated by |  (calories optional) */
+/* Claude link format: name;protein;fat;carbs;alcohol;calories;r  -- items separated by |  (calories optional; trailing r = file under Recipes) */
 function parseImport(s){const out=[];for(const part of String(s||'').split('|')){const f=part.split(';').map(x=>x.trim());if(!f[0])continue;
   const p=num(f[1]),fa=num(f[2]),c=num(f[3]),a=num(f[4]);
-  out.push({name:f[0],serving:'1 serving',protein_g:r1(p),fat_g:r1(fa),carbs_g:r1(c),alcohol_g:r1(a),calories:(f[5]!==undefined&&f[5]!=='')?Math.round(num(f[5])):calcCal(p,c,fa,a)})}return out}
+  const o={name:f[0],serving:'1 serving',protein_g:r1(p),fat_g:r1(fa),carbs_g:r1(c),alcohol_g:r1(a),calories:(f[5]!==undefined&&f[5]!=='')?Math.round(num(f[5])):calcCal(p,c,fa,a)};
+  if((f[6]||'').toLowerCase()==='r')o.recipe=true;out.push(o)}return out}
 if(typeof module!=='undefined')module.exports={parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.2';
+const APP_VERSION='1.3';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -191,19 +195,25 @@ function log(food,qty,source){entries.push(makeEntry(food,qty,day,nowTime(),sour
 function showForm(food,opts){pending=opts||{};$('fTitle').textContent=pending.title||'Add food';$('fNote').textContent=pending.note||'';
   $('fName').value=food.name||'';$('fServing').value=food.serving||'';$('fQty').value=1;
   $('fP').value=food.protein_g??'';$('fF').value=food.fat_g??'';$('fC').value=food.carbs_g??'';$('fA').value=food.alcohol_g||'';$('fCal').value=food.calories??'';
+  $('fRecipe').checked=!!food.recipe;$('fRemove').style.display=(pending.id&&foods[pending.id])?'':'none';
   open('sForm')}
+$('fRemove').onclick=()=>{if(pending&&pending.id){delete foods[pending.id];save()}renderFoods();open('sFoods');toast('Removed from My foods')};
 $('fDrink').onclick=()=>{$('fA').value=r1(num($('fA').value)+14);$('fCal').value=''};
 $('fSave').onclick=()=>{const name=$('fName').value.trim();if(!name){toast('Name it first');return}
   const p=num($('fP').value),f=num($('fF').value),c=num($('fC').value),a=num($('fA').value);
   const cal=$('fCal').value===''?calcCal(p,c,f,a):Math.round(num($('fCal').value));
   const id=pending.id||(pending.barcode?'b:'+pending.barcode:'m:'+name.toLowerCase());
-  const food={id,name,serving:$('fServing').value.trim()||'1 serving',calories:cal,protein_g:p,fat_g:f,carbs_g:c,alcohol_g:a,barcode:pending.barcode||(foods[id]&&foods[id].barcode)||'',count:(foods[id]&&foods[id].count)||0,lastUsed:Date.now()};
+  const food={id,name,serving:$('fServing').value.trim()||'1 serving',calories:cal,protein_g:p,fat_g:f,carbs_g:c,alcohol_g:a,recipe:$('fRecipe').checked,barcode:pending.barcode||(foods[id]&&foods[id].barcode)||'',count:(foods[id]&&foods[id].count)||0,lastUsed:Date.now()};
   foods[id]=food;log(food,$('fQty').value,pending.source||'manual');open(null);toast('Logged')};
 
+let foodFilter='all';
+const foodKind=f=>f.recipe?'recipe':f.barcode?'scan':'other';
 function renderFoods(){const q=$('qFoods').value.trim().toLowerCase();
-  const fl=Object.values(foods).filter(f=>!q||f.name.toLowerCase().includes(q)).sort((a,b)=>(b.lastUsed||0)-(a.lastUsed||0));
-  $('foodList').innerHTML=fl.length?fl.map(f=>'<div class="item"><div data-f="'+esc(f.id)+'" style="flex:1"><div class="n">'+esc(f.name)+'</div><div class="m">'+esc(f.serving)+' · '+f.calories+' cal · P'+f.protein_g+' F'+f.fat_g+' C'+f.carbs_g+(f.alcohol_g?' A'+f.alcohol_g:'')+'</div></div><button class="sm pri" data-q="'+esc(f.id)+'" style="flex:0 0 48px">+</button></div>').join(''):'<div class="empty">'+(q?'No match.':'Foods you scan or enter show up here.')+'</div>'}
+  $('chips').innerHTML=[['all','All'],['recipe','Recipes'],['scan','Scanned'],['other','Other']].map(c=>'<button class="sm'+(foodFilter===c[0]?' pri':'')+'" data-c="'+c[0]+'" style="padding:8px 4px">'+c[1]+'</button>').join('');
+  const fl=Object.values(foods).filter(f=>(foodFilter==='all'||foodKind(f)===foodFilter)&&(!q||f.name.toLowerCase().includes(q))).sort((a,b)=>(b.lastUsed||0)-(a.lastUsed||0));
+  $('foodList').innerHTML=fl.length?fl.map(f=>'<div class="item"><div data-f="'+esc(f.id)+'" style="flex:1"><div class="n">'+esc(f.name)+'</div><div class="m">'+esc(f.serving)+' · '+f.calories+' cal · P'+f.protein_g+' F'+f.fat_g+' C'+f.carbs_g+(f.alcohol_g?' A'+f.alcohol_g:'')+'</div></div><button class="sm pri" data-q="'+esc(f.id)+'" style="flex:0 0 48px">+</button></div>').join(''):'<div class="empty">'+(q||foodFilter!=='all'?'Nothing here.':'Foods you scan or enter show up here.')+'</div>'}
 $('qFoods').oninput=renderFoods;
+$('chips').onclick=ev=>{const c=ev.target.closest('[data-c]');if(c){foodFilter=c.dataset.c;renderFoods()}};
 $('foodList').onclick=ev=>{const q=ev.target.closest('[data-q]'),f=ev.target.closest('[data-f]');
   if(q){const fd=foods[q.dataset.q];log(fd,1,fd.barcode?'barcode':'manual');renderFoods();toast('Logged '+fd.name)}
   else if(f){const fd=foods[f.dataset.f];showForm(fd,{id:fd.id,barcode:fd.barcode,title:'Log food',source:fd.barcode?'barcode':'manual'})}};
@@ -255,7 +265,7 @@ function checkLink(){let q;try{q=new URLSearchParams(location.hash.slice(1))}cat
   $('iInfo').textContent='Logging to '+day+' · total '+t.cal+' cal · P'+t.p+' F'+t.f+' C'+t.c+(t.a?' A'+t.a:'');
   $('iList').innerHTML=items.map(f=>'<div class="item"><div><div class="n">'+esc(f.name)+'</div><div class="m">P'+f.protein_g+' F'+f.fat_g+' C'+f.carbs_g+(f.alcohol_g?' A'+f.alcohol_g:'')+'</div></div><div class="c">'+f.calories+'</div></div>').join('');
   open('sImport')}
-$('iGo').onclick=()=>{if(!imp)return;for(const f of imp){const id='m:'+f.name.toLowerCase();const food=Object.assign({id,barcode:'',count:(foods[id]&&foods[id].count)||0},f);foods[id]=food;log(food,1,'estimate')}
+$('iGo').onclick=()=>{if(!imp)return;for(const f of imp){const id='m:'+f.name.toLowerCase(),old=foods[id];const food=Object.assign({id,barcode:'',count:(old&&old.count)||0},f,{recipe:!!(f.recipe||(old&&old.recipe))});foods[id]=food;log(food,1,'estimate')}
   const n=imp.length;imp=null;open(null);toast('Logged '+n+' item'+(n===1?'':'s'))};
 window.addEventListener('hashchange',checkLink);
 

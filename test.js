@@ -55,3 +55,9 @@ assert.strictEqual(imp[1].calories, 200); // 4*4 + 4*45 + 9*0.4 = 199.6
 assert.strictEqual(imp[2].calories, 146); // 48 + 98, blank calories field
 assert.deepStrictEqual(L.parseImport(''), []);
 console.log('import tests passed');
+
+// recipe flag in link import
+const rimp = L.parseImport("Kristina's chili (1 bowl);32;14;28;0;390;r|Cornbread 1 piece;4;7;28;0");
+assert.strictEqual(rimp[0].recipe, true);
+assert.strictEqual(rimp[1].recipe, undefined);
+console.log('recipe tests passed');
