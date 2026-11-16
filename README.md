@@ -4,6 +4,9 @@ Personal food log, installable on Android as a web app.
 
 - Scan a barcode (Open Food Facts lookup), quick-add from My foods, or enter macros manually
 - Tracks calories, protein, fat, carbs, alcohol
+- Day view grouped into eight 3-hour blocks (collapsible); tap an entry to move it to another block
+- Queue: prepped food waits unchecked on today or a future day and only counts once checked off
+- Copy a block or a whole past day to today
 - 7-day view with CSV export and a copyable summary
 - Staples: a usual meal (named set of foods) whose amounts can be adjusted per day before logging; amounts are in grams when the food's serving label or name states a gram weight, otherwise in servings
 - Data stays on the phone (localStorage); use Save backup in the Week screen

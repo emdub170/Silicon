@@ -69,3 +69,8 @@ assert.strictEqual(L.servingGrams({ serving: '1 serving', name: "Kristina's disc
 assert.strictEqual(L.servingGrams({ serving: '1 serving', name: 'Eggs, 2 large' }), 0);
 assert.strictEqual(L.servingGrams({ serving: '2 Tbsp', name: 'Salsa 150 mg sodium' }), 0);
 console.log('staple tests passed');
+
+// time blocks
+assert.strictEqual(L.BLOCKS.length, 8);
+assert.deepStrictEqual(['00:00', '02:59', '03:00', '08:59', '09:00', '12:00', '20:59', '23:59', ''].map(L.blockOf), [0, 0, 1, 2, 3, 4, 6, 7, 0]);
+console.log('block tests passed');

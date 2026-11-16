@@ -50,6 +50,8 @@ th:first-child,td:first-child{text-align:left}
 th{color:var(--dim);font-weight:500;font-size:12px}
 tr.avg td{font-weight:700;border-bottom:none}
 td.none{color:var(--dim)}
+.blk{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 2px 8px;margin-top:8px;color:var(--dim);font-size:14px;border-bottom:1px solid var(--line);margin-bottom:6px;cursor:pointer}
+.blk b{color:var(--text);font-size:15px}
 #toast{position:fixed;left:50%;bottom:160px;transform:translateX(-50%);background:#000;border:1px solid var(--line);padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:9}
 </style>
 </head>
@@ -57,6 +59,8 @@ td.none{color:var(--dim)}
 <div class="top"><h1>Silicon <span id="ver" style="font-size:12px;color:var(--dim);font-weight:400"></span></h1><button class="sm" id="bWeek">Week / Export</button></div>
 <div class="datebar"><button id="bPrev" aria-label="Previous day">&#8249;</button><div class="d" id="dLabel"></div><button id="bNext" aria-label="Next day">&#8250;</button></div>
 <div class="totals" id="totals"></div>
+<div class="row" id="modeRow" style="margin-bottom:6px"><button class="sm" id="mEat">Log as eaten</button><button class="sm" id="mQueue">Add to queue</button></div>
+<div class="hint" id="modeNote" style="margin:0 0 6px"></div>
 <div id="list"></div>
 <div id="bk" class="hint" style="text-align:center;margin-top:14px"></div>
 <div class="bar"><div class="in">
@@ -110,7 +114,10 @@ td.none{color:var(--dim)}
 <div class="sheet" id="sEntry"><div class="in">
   <div class="top"><h1 id="eName"></h1><button class="sm" data-close>Close</button></div>
   <div class="hint" id="eInfo"></div>
-  <div class="row"><button id="eAgain">Log again today</button><button class="bad" id="eDel">Delete</button></div>
+  <label id="eBlkLabel">Time block</label>
+  <div id="eBlocks" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px"></div>
+  <div class="row" style="margin-top:14px"><button id="eAgain">Log again today</button><button class="bad" id="eDel">Delete</button></div>
+  <div class="row" style="margin-top:10px"><button class="sm" id="eQueue"></button></div>
 </div></div>
 
 <div class="sheet" id="sWeek"><div class="in">
@@ -194,11 +201,13 @@ function parseImport(s){const out=[];for(const part of String(s||'').split('|'))
   if((f[6]||'').toLowerCase()==='r')o.recipe=true;out.push(o)}return out}
 /* grams in one serving, read from the serving label or the food name ("32.0g", "1 bar (60 g)", "Bread (50 g)"); 0 if none */
 function servingGrams(food){const m=/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i.exec(((food&&food.serving)||'')+' | '+((food&&food.name)||''));return m?parseFloat(m[1]):0}
-if(typeof module!=='undefined')module.exports={servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
+const BLOCKS=['12–3 AM','3–6 AM','6–9 AM','9 AM–noon','Noon–3 PM','3–6 PM','6–9 PM','9 PM–midnight'];
+function blockOf(time){return Math.min(7,Math.max(0,Math.floor((parseInt(String(time||'').slice(0,2),10)||0)/3)))}
+if(typeof module!=='undefined')module.exports={BLOCKS,blockOf,servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.4';
+const APP_VERSION='1.5';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -212,16 +221,29 @@ function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';cle
 function open(id){document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));if(id)$(id).classList.add('on');if(id!=='sScan')stopScan()}
 function nowTime(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
 
-function render(){const today=ymd(new Date());
-  $('dLabel').textContent=day===today?'Today':day===shiftDay(today,-1)?'Yesterday':new Date(day+'T12:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
-  const list=entries.filter(e=>e.date===day).sort((a,b)=>a.time.localeCompare(b.time)),t=sumEntries(list);
+let addMode='eat';const closed=new Set();
+const eaten=()=>entries.filter(e=>!e.planned);
+const queueing=()=>addMode==='queue'||day>ymd(new Date());
+const blockStart=i=>String(i*3).padStart(2,'0')+':00';
+function render(){const today=ymd(new Date()),future=day>today;if(future)addMode='queue';
+  $('dLabel').textContent=day===today?'Today':day===shiftDay(today,-1)?'Yesterday':day===shiftDay(today,1)?'Tomorrow':new Date(day+'T12:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
+  const all=entries.filter(e=>e.date===day).sort((a,b)=>a.time.localeCompare(b.time)),list=all.filter(e=>!e.planned),queue=all.filter(e=>e.planned),t=sumEntries(list);
   $('totals').innerHTML=[['cal','Cal',t.cal],['','Protein',t.p],['','Fat',t.f],['','Carbs',t.c],['','Alc g',t.a]].map(x=>'<div class="tot '+x[0]+'"><b>'+x[2]+'</b><span>'+x[1]+'</span></div>').join('');
-  $('list').innerHTML=list.length?list.map(e=>'<div class="item" data-e="'+esc(e.id)+'"><div><div class="n">'+esc(e.name)+'</div><div class="m">'+e.servings+' × · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+(e.alcohol_g?' A'+e.alcohol_g:'')+'</div></div><div class="c">'+e.calories+'</div></div>').join(''):'<div class="empty">Nothing logged. Scan, pick from My foods, or add manually.</div>';
+  $('modeRow').style.display=future?'none':'';$('mEat').className='sm'+(addMode==='eat'?' pri':'');$('mQueue').className='sm'+(addMode==='queue'?' pri':'');
+  $('modeNote').textContent=future?'Future day: anything added here goes to the queue.':addMode==='queue'?'Queue mode: new items wait in the queue until you check them off.':'';
+  const row=e=>'<div class="item" data-e="'+esc(e.id)+'"><div style="flex:1"><div class="n">'+esc(e.name)+'</div><div class="m">'+e.servings+' × · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+(e.alcohol_g?' A'+e.alcohol_g:'')+'</div></div><div class="c">'+e.calories+'</div>'+(e.planned&&day===today?'<button class="sm pri" data-chk="'+esc(e.id)+'" style="flex:0 0 48px" aria-label="Ate it now">✓</button>':'')+'</div>';
+  let h='';
+  if(queue.length){const qt=sumEntries(queue);h+='<div class="blk" style="cursor:default"><b>Queue · prepped, not eaten</b><span>'+queue.length+' · '+qt.cal+' cal · P'+qt.p+'</span></div>'+queue.map(row).join('')}
+  for(let i=0;i<8;i++){const be=list.filter(e=>blockOf(e.time)===i);if(!be.length)continue;const bt=sumEntries(be),shut=closed.has(day+'#'+i);
+    h+='<div class="blk" data-blk="'+i+'"><b>'+(shut?'▸ ':'▾ ')+BLOCKS[i]+'</b><span>'+be.length+' · '+bt.cal+' cal · P'+bt.p+'</span>'+(day<today?'<button class="sm" data-copy="'+i+'" style="flex:0 0 auto;min-height:34px;padding:4px 10px;font-size:13px">Copy to today</button>':'')+'</div>'+(shut?'':be.map(row).join(''))}
+  if(!all.length)h='<div class="empty">'+(future?'Nothing queued. Add prepped food here and check it off when you eat it.':'Nothing logged. Scan, pick a staple or a food, or add manually.')+'</div>';
+  if(day<today&&list.length)h+='<div class="row" style="margin-top:12px"><button data-copyday="1">Copy whole day to today</button></div>';
+  $('list').innerHTML=h;
   const lb=store.get('si_lastBackup',0),bd=lb?Math.floor((Date.now()-lb)/864e5):-1,bk=$('bk');
   bk.textContent=!entries.length?'':lb?'Last backup: '+(bd===0?'today':bd+' day'+(bd===1?'':'s')+' ago')+(bd>=7?' — tap to back up':''):'No backup yet — tap to save one';
   bk.className=(!lb||bd>=7)?'note':'hint';$('ver').textContent='v'+APP_VERSION}
 
-function log(food,qty,source){entries.push(makeEntry(food,qty,day,nowTime(),source));if(food.id&&foods[food.id]){foods[food.id].lastUsed=Date.now();foods[food.id].count=(foods[food.id].count||0)+1}save();render()}
+function log(food,qty,source){const ne=makeEntry(food,qty,day,nowTime(),source);if(queueing())ne.planned=true;entries.push(ne);if(food.id&&foods[food.id]){foods[food.id].lastUsed=Date.now();foods[food.id].count=(foods[food.id].count||0)+1}save();render()}
 
 function showForm(food,opts){pending=opts||{};$('fTitle').textContent=pending.title||'Add food';$('fNote').textContent=pending.note||'';
   $('fName').value=food.name||'';$('fServing').value=food.serving||'';$('fQty').value=1;
@@ -249,8 +271,23 @@ $('foodList').onclick=ev=>{const q=ev.target.closest('[data-q]'),f=ev.target.clo
   if(q){const fd=foods[q.dataset.q];log(fd,1,srcOf(fd));renderFoods();toast('Logged '+fd.name)}
   else if(f){const fd=foods[f.dataset.f];showForm(fd,{id:fd.id,barcode:fd.barcode,title:'Log food',source:srcOf(fd)})}};
 
-$('list').onclick=ev=>{const it=ev.target.closest('[data-e]');if(!it)return;curEntry=entries.find(e=>e.id===it.dataset.e);if(!curEntry)return;
-  $('eName').textContent=curEntry.name;$('eInfo').textContent=curEntry.date+' '+curEntry.time+' · '+curEntry.servings+' × · '+curEntry.calories+' cal · P'+curEntry.protein_g+' F'+curEntry.fat_g+' C'+curEntry.carbs_g+' A'+curEntry.alcohol_g;open('sEntry')};
+function moveEntry(e,blk){const today=ymd(new Date()),was=!!e.planned;e.planned=false;if(e.date>today)e.date=today;
+  if(was||blockOf(e.time)!==blk)e.time=(e.date===today&&blk===blockOf(nowTime()))?nowTime():blockStart(blk)}
+function copyToday(src){const today=ymd(new Date());let n=0;for(const e of src)entries.push(Object.assign({},e,{id:today+'-'+Date.now()+'-c'+(n++),date:today,planned:false}));save();render();toast('Copied '+n+' item'+(n===1?'':'s')+' to today')}
+function openEntry(e){curEntry=e;const today=ymd(new Date());$('eName').textContent=e.name;
+  $('eInfo').textContent=(e.planned?'In the queue for '+e.date:e.date+' '+e.time)+' · '+e.servings+' × · '+e.calories+' cal · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+' A'+e.alcohol_g;
+  $('eBlkLabel').textContent=e.planned?('Ate it — when?'+(e.date>today?' (moves it to today)':'')):'Time block (tap to move)';
+  const cb=e.planned?-1:blockOf(e.time);$('eBlocks').innerHTML=BLOCKS.map((b,i)=>'<button class="sm'+(i===cb?' pri':'')+'" data-mv="'+i+'" style="font-size:13px;padding:8px 2px">'+b+'</button>').join('');
+  $('eAgain').style.display=e.planned?'none':'';const q=$('eQueue');q.style.display=(e.planned&&e.date===today)?'none':'';q.textContent=e.planned?"Move to today's queue":'Move to queue (not eaten yet)';open('sEntry')}
+$('list').onclick=ev=>{const T=ev.target,find=id=>entries.find(e=>e.id===id);let el;
+  if((el=T.closest('[data-chk]'))){const e=find(el.dataset.chk);if(e){moveEntry(e,blockOf(nowTime()));save();render();toast('Checked off')}return}
+  if((el=T.closest('[data-copy]'))){const i=+el.dataset.copy;copyToday(eaten().filter(e=>e.date===day&&blockOf(e.time)===i));return}
+  if(T.closest('[data-copyday]')){copyToday(eaten().filter(e=>e.date===day));return}
+  if((el=T.closest('[data-e]'))){const e=find(el.dataset.e);if(e)openEntry(e);return}
+  if((el=T.closest('[data-blk]'))){const k=day+'#'+el.dataset.blk;if(closed.has(k))closed.delete(k);else closed.add(k);render()}};
+$('eBlocks').onclick=ev=>{const b=ev.target.closest('[data-mv]');if(!b||!curEntry)return;moveEntry(curEntry,+b.dataset.mv);save();render();open(null);toast('Moved')};
+$('eQueue').onclick=()=>{if(!curEntry)return;if(curEntry.planned)curEntry.date=ymd(new Date());else curEntry.planned=true;save();render();open(null);toast('Queued')};
+$('mEat').onclick=()=>{addMode='eat';render()};$('mQueue').onclick=()=>{addMode='queue';render()};
 $('eDel').onclick=()=>{entries=entries.filter(e=>e!==curEntry);save();render();open(null);toast('Deleted')};
 $('eAgain').onclick=()=>{const e=Object.assign({},curEntry,{id:day+'-'+Date.now(),date:ymd(new Date()),time:nowTime()});entries.push(e);day=e.date;save();render();open(null);toast('Logged')};
 
@@ -274,14 +311,14 @@ async function lookup(code){code=String(code).replace(/\D/g,'');if(!code){toast(
 $('codeGo').onclick=()=>{stopScan();lookup($('codeIn').value)};
 
 /* week + export */
-function renderWeek(){const w=weekSummary(entries,day);$('wRange').textContent=shiftDay(day,-6)+' to '+day+' (ends on the day selected on the main screen)';
+function renderWeek(){const w=weekSummary(eaten(),day);$('wRange').textContent=shiftDay(day,-6)+' to '+day+' (ends on the day selected on the main screen)';
   $('wTable').innerHTML='<tr><th>Day</th><th>Cal</th><th>P</th><th>F</th><th>C</th><th>Alc</th></tr>'+w.days.map(d=>{const lbl=new Date(d.date+'T12:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric'});
     return d.n?'<tr><td>'+lbl+'</td><td>'+d.cal+'</td><td>'+d.p+'</td><td>'+d.f+'</td><td>'+d.c+'</td><td>'+d.a+'</td></tr>':'<tr><td>'+lbl+'</td><td class="none" colspan="5">not logged</td></tr>'}).join('')+
     '<tr class="avg"><td>Avg ('+w.logged+'d)</td><td>'+w.avg.cal+'</td><td>'+w.avg.p+'</td><td>'+w.avg.f+'</td><td>'+w.avg.c+'</td><td>'+w.avg.a+'</td></tr>'}
 function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}
 async function shareFile(name,text,type){try{const f=new File([text],name,{type});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return true}}catch(e){if(e.name==='AbortError')return false}download(name,text,type);return true}
-$('wShare').onclick=()=>shareFile('food-log_'+shiftDay(day,-6)+'_to_'+day+'.csv',toCSV(entries,day),'text/csv');
-$('wCopy').onclick=async()=>{const t=summaryText(entries,day);try{await navigator.clipboard.writeText(t);toast('Summary copied')}catch(e){shareFile('food-summary_'+day+'.txt',t,'text/plain')}};
+$('wShare').onclick=()=>shareFile('food-log_'+shiftDay(day,-6)+'_to_'+day+'.csv',toCSV(eaten(),day),'text/csv');
+$('wCopy').onclick=async()=>{const t=summaryText(eaten(),day);try{await navigator.clipboard.writeText(t);toast('Summary copied')}catch(e){shareFile('food-summary_'+day+'.txt',t,'text/plain')}};
 $('wBackup').onclick=async()=>{if(await shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods,staples}),'application/json')){store.set('si_lastBackup',Date.now());render()}};
 $('wRestore').onclick=()=>$('wFile').click();
 $('wFile').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.entries)||typeof j.foods!=='object')throw 0;
@@ -302,7 +339,7 @@ function stapleEntries(){return cur.rows.filter(r=>r.amt>0).map(r=>makeEntry(r.f
 function stapleTotals(){cur.rows.forEach((r,k)=>{const e=r.amt>0?makeEntry(r.food,rowQty(r),day,'',''):null;$('sum'+k).textContent=e?e.calories+' cal · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g:'skipped today'});
   const t=sumEntries(stapleEntries());$('suTotal').textContent='Total '+t.cal+' cal · P'+t.p+' F'+t.f+' C'+t.c+(t.a?' A'+t.a:'')}
 $('suList').oninput=ev=>{const k=ev.target.dataset.k;if(k==null)return;cur.rows[k].amt=Math.max(0,num(ev.target.value));stapleTotals()};
-$('suGo').onclick=()=>{const es=stapleEntries();if(!es.length){toast('Nothing to log');return}for(const e of es)entries.push(e);
+$('suGo').onclick=()=>{const es=stapleEntries();if(!es.length){toast('Nothing to log');return}for(const e of es){if(queueing())e.planned=true;entries.push(e)}
   cur.rows.forEach(r=>{if(r.amt>0){r.food.lastUsed=Date.now();r.food.count=(r.food.count||0)+1}});save();render();open(null);toast('Logged '+cur.st.name)};
 $('suDefault').onclick=()=>{const keep=cur.rows.filter(r=>r.amt>0);if(!keep.length){toast('Nothing to keep');return}cur.st.items=keep.map(r=>({foodId:r.food.id,qty:rowQty(r)}));save();toast('Saved as your usual')};
 $('suEdit').onclick=()=>openBuild(cur.st);
@@ -335,8 +372,8 @@ $('iGo').onclick=()=>{if(!imp)return;for(const f of imp){const id='m:'+f.name.to
 window.addEventListener('hashchange',checkLink);
 
 /* wiring */
-$('bPrev').onclick=()=>{day=shiftDay(day,-1);render()};
-$('bNext').onclick=()=>{if(day<ymd(new Date())){day=shiftDay(day,1);render()}};
+$('bPrev').onclick=()=>{day=shiftDay(day,-1);addMode='eat';render()};
+$('bNext').onclick=()=>{if(day<shiftDay(ymd(new Date()),7)){day=shiftDay(day,1);addMode='eat';render()}};
 $('bScan').onclick=startScan;
 $('bManual').onclick=()=>showForm({},{title:'Add food',source:'manual'});
 $('bFoods').onclick=()=>{$('qFoods').value='';renderFoods();open('sFoods')};
