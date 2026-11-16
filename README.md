@@ -5,6 +5,7 @@ Personal food log, installable on Android as a web app.
 - Scan a barcode (Open Food Facts lookup), quick-add from My foods, or enter macros manually
 - Tracks calories, protein, fat, carbs, alcohol
 - 7-day view with CSV export and a copyable summary
+- Staples: a usual meal (named set of foods) whose amounts can be adjusted per day before logging; amounts are in grams when the food's serving label or name states a gram weight, otherwise in servings
 - Data stays on the phone (localStorage); use Save backup in the Week screen
 
 Run the logic tests: `node test.js`

@@ -61,3 +61,11 @@ const rimp = L.parseImport("Kristina's chili (1 bowl);32;14;28;0;390;r|Cornbread
 assert.strictEqual(rimp[0].recipe, true);
 assert.strictEqual(rimp[1].recipe, undefined);
 console.log('recipe tests passed');
+
+// grams per serving, for staple amounts
+assert.strictEqual(L.servingGrams({ serving: '32.0g', name: 'Beef stick' }), 32);
+assert.strictEqual(L.servingGrams({ serving: '1 bar (60 g)', name: 'Bar' }), 60);
+assert.strictEqual(L.servingGrams({ serving: '1 serving', name: "Kristina's discard bread (50 g)" }), 50);
+assert.strictEqual(L.servingGrams({ serving: '1 serving', name: 'Eggs, 2 large' }), 0);
+assert.strictEqual(L.servingGrams({ serving: '2 Tbsp', name: 'Salsa 150 mg sodium' }), 0);
+console.log('staple tests passed');

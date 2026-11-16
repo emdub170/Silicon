@@ -36,7 +36,8 @@ label{display:block;font-size:13px;color:var(--dim);margin:10px 0 4px}
 .item .c{font-weight:600;white-space:nowrap}
 .empty{color:var(--dim);text-align:center;padding:28px 8px}
 .bar{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(transparent,var(--bg) 22%);padding:22px 12px calc(12px + env(safe-area-inset-bottom))}
-.bar .in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.bar .in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.bar button{padding:12px 2px;font-size:15px}
 .sheet{position:fixed;inset:0;background:var(--bg);overflow:auto;padding:12px 12px 40px;display:none;z-index:5}
 .sheet.on{display:block}
 .sheet .in{max-width:560px;margin:0 auto}
@@ -60,6 +61,7 @@ td.none{color:var(--dim)}
 <div id="bk" class="hint" style="text-align:center;margin-top:14px"></div>
 <div class="bar"><div class="in">
   <button class="pri" id="bScan">Scan</button>
+  <button id="bStaples">Staples</button>
   <button id="bFoods">My foods</button>
   <button id="bManual">Manual</button>
 </div></div>
@@ -121,6 +123,31 @@ td.none{color:var(--dim)}
   <div class="row"><button id="wBackup">Save backup</button><button id="wRestore">Restore</button></div>
   <input type="file" id="wFile" accept=".json,application/json" style="display:none">
 </div></div>
+<div class="sheet" id="sStaples"><div class="in">
+  <div class="top"><h1>Staples</h1><button class="sm" data-close>Close</button></div>
+  <div class="hint">A staple is a usual meal. Tap one, adjust today's amounts, log it.</div>
+  <div id="stapleList"></div>
+  <div class="row" style="margin-top:14px"><button id="stNew">New staple</button></div>
+</div></div>
+
+<div class="sheet" id="sStaple"><div class="in">
+  <div class="top"><h1 id="suName"></h1><button class="sm" data-close>Cancel</button></div>
+  <div class="hint" id="suTotal"></div>
+  <div id="suList"></div>
+  <div class="hint">g = grams, × = servings. Set an amount to 0 to skip that item today.</div>
+  <div class="row" style="margin-top:14px"><button class="pri" id="suGo">Log all</button></div>
+  <div class="row" style="margin-top:10px"><button class="sm" id="suDefault">Make these my usual</button><button class="sm" id="suEdit">Edit items</button></div>
+</div></div>
+
+<div class="sheet" id="sBuild"><div class="in">
+  <div class="top"><h1>Staple items</h1><button class="sm" data-close>Cancel</button></div>
+  <label>Name</label><input id="sbName" placeholder="Breakfast" autocomplete="off">
+  <div class="row" style="margin-top:12px"><button class="pri" id="sbSave">Save staple</button></div>
+  <label>Tap foods to include</label><input id="sbQ" placeholder="Search My foods" autocomplete="off">
+  <div id="sbList" style="margin-top:8px"></div>
+  <div class="row" style="margin-top:10px"><button class="bad" id="sbDel" style="display:none">Delete staple</button></div>
+</div></div>
+
 <div class="sheet" id="sImport"><div class="in">
   <div class="top"><h1>From Claude</h1><button class="sm" data-close>Cancel</button></div>
   <div class="note">Estimates. Check they look right before logging.</div>
@@ -165,18 +192,22 @@ function parseImport(s){const out=[];for(const part of String(s||'').split('|'))
   const p=num(f[1]),fa=num(f[2]),c=num(f[3]),a=num(f[4]);
   const o={name:f[0],serving:'1 serving',protein_g:r1(p),fat_g:r1(fa),carbs_g:r1(c),alcohol_g:r1(a),calories:(f[5]!==undefined&&f[5]!=='')?Math.round(num(f[5])):calcCal(p,c,fa,a)};
   if((f[6]||'').toLowerCase()==='r')o.recipe=true;out.push(o)}return out}
-if(typeof module!=='undefined')module.exports={parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
+/* grams in one serving, read from the serving label or the food name ("32.0g", "1 bar (60 g)", "Bread (50 g)"); 0 if none */
+function servingGrams(food){const m=/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i.exec(((food&&food.serving)||'')+' | '+((food&&food.name)||''));return m?parseFloat(m[1]):0}
+if(typeof module!=='undefined')module.exports={servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.3';
+const APP_VERSION='1.4';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let staples=store.get('si_staples',[]);
 let entries=store.get('si_entries',[]),foods=store.get('si_foods',{}),day=ymd(new Date()),pending=null,curEntry=null,stream=null,scanning=false;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const save=()=>{store.set('si_entries',entries);store.set('si_foods',foods)};
+const save=()=>{store.set('si_entries',entries);store.set('si_foods',foods);store.set('si_staples',staples)};
+const srcOf=f=>f.barcode?'barcode':f.est?'estimate':'manual';
 function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',1800)}
 function open(id){document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));if(id)$(id).classList.add('on');if(id!=='sScan')stopScan()}
 function nowTime(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
@@ -203,7 +234,7 @@ $('fSave').onclick=()=>{const name=$('fName').value.trim();if(!name){toast('Name
   const p=num($('fP').value),f=num($('fF').value),c=num($('fC').value),a=num($('fA').value);
   const cal=$('fCal').value===''?calcCal(p,c,f,a):Math.round(num($('fCal').value));
   const id=pending.id||(pending.barcode?'b:'+pending.barcode:'m:'+name.toLowerCase());
-  const food={id,name,serving:$('fServing').value.trim()||'1 serving',calories:cal,protein_g:p,fat_g:f,carbs_g:c,alcohol_g:a,recipe:$('fRecipe').checked,barcode:pending.barcode||(foods[id]&&foods[id].barcode)||'',count:(foods[id]&&foods[id].count)||0,lastUsed:Date.now()};
+  const food={id,name,serving:$('fServing').value.trim()||'1 serving',calories:cal,protein_g:p,fat_g:f,carbs_g:c,alcohol_g:a,recipe:$('fRecipe').checked,est:!!(foods[id]&&foods[id].est),barcode:pending.barcode||(foods[id]&&foods[id].barcode)||'',count:(foods[id]&&foods[id].count)||0,lastUsed:Date.now()};
   foods[id]=food;log(food,$('fQty').value,pending.source||'manual');open(null);toast('Logged')};
 
 let foodFilter='all';
@@ -215,8 +246,8 @@ function renderFoods(){const q=$('qFoods').value.trim().toLowerCase();
 $('qFoods').oninput=renderFoods;
 $('chips').onclick=ev=>{const c=ev.target.closest('[data-c]');if(c){foodFilter=c.dataset.c;renderFoods()}};
 $('foodList').onclick=ev=>{const q=ev.target.closest('[data-q]'),f=ev.target.closest('[data-f]');
-  if(q){const fd=foods[q.dataset.q];log(fd,1,fd.barcode?'barcode':'manual');renderFoods();toast('Logged '+fd.name)}
-  else if(f){const fd=foods[f.dataset.f];showForm(fd,{id:fd.id,barcode:fd.barcode,title:'Log food',source:fd.barcode?'barcode':'manual'})}};
+  if(q){const fd=foods[q.dataset.q];log(fd,1,srcOf(fd));renderFoods();toast('Logged '+fd.name)}
+  else if(f){const fd=foods[f.dataset.f];showForm(fd,{id:fd.id,barcode:fd.barcode,title:'Log food',source:srcOf(fd)})}};
 
 $('list').onclick=ev=>{const it=ev.target.closest('[data-e]');if(!it)return;curEntry=entries.find(e=>e.id===it.dataset.e);if(!curEntry)return;
   $('eName').textContent=curEntry.name;$('eInfo').textContent=curEntry.date+' '+curEntry.time+' · '+curEntry.servings+' × · '+curEntry.calories+' cal · P'+curEntry.protein_g+' F'+curEntry.fat_g+' C'+curEntry.carbs_g+' A'+curEntry.alcohol_g;open('sEntry')};
@@ -251,10 +282,44 @@ function download(name,text,type){const a=document.createElement('a');a.href=URL
 async function shareFile(name,text,type){try{const f=new File([text],name,{type});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return true}}catch(e){if(e.name==='AbortError')return false}download(name,text,type);return true}
 $('wShare').onclick=()=>shareFile('food-log_'+shiftDay(day,-6)+'_to_'+day+'.csv',toCSV(entries,day),'text/csv');
 $('wCopy').onclick=async()=>{const t=summaryText(entries,day);try{await navigator.clipboard.writeText(t);toast('Summary copied')}catch(e){shareFile('food-summary_'+day+'.txt',t,'text/plain')}};
-$('wBackup').onclick=async()=>{if(await shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods}),'application/json')){store.set('si_lastBackup',Date.now());render()}};
+$('wBackup').onclick=async()=>{if(await shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods,staples}),'application/json')){store.set('si_lastBackup',Date.now());render()}};
 $('wRestore').onclick=()=>$('wFile').click();
 $('wFile').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.entries)||typeof j.foods!=='object')throw 0;
-    const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
+    const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);if(Array.isArray(j.staples)){const hs=new Set(staples.map(x=>x.id));for(const x of j.staples)if(!hs.has(x.id))staples.push(x)}save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
+
+/* staples: a usual meal = a named set of foods with usual amounts, adjustable per day */
+let cur=null,build=null;
+const q3=x=>Math.round(x*1000)/1000,rowQty=r=>q3(r.g?r.amt/r.g:r.amt);
+function renderStaples(){staples.forEach(s=>{s.items=s.items.filter(i=>foods[i.foodId])});
+  $('stapleList').innerHTML=staples.length?staples.map(s=>{const t=sumEntries(s.items.map(i=>makeEntry(foods[i.foodId],i.qty,day,'','')));
+    return '<div class="item" data-s="'+esc(s.id)+'"><div><div class="n">'+esc(s.name)+'</div><div class="m">'+s.items.length+' item'+(s.items.length===1?'':'s')+' · P'+t.p+' F'+t.f+' C'+t.c+'</div></div><div class="c">'+t.cal+'</div></div>'}).join(''):'<div class="empty">No staples yet. Build one from the foods in My foods.</div>'}
+function openStaple(id){const st=staples.find(s=>s.id===id);if(!st)return;
+  cur={st,rows:st.items.filter(i=>foods[i.foodId]).map(i=>{const food=foods[i.foodId],g=servingGrams(food);return {food,g,amt:g?Math.round(i.qty*g):i.qty}})};
+  $('suName').textContent=st.name;
+  $('suList').innerHTML=cur.rows.map((r,k)=>'<div class="item"><div style="flex:1"><div class="n">'+esc(r.food.name)+'</div><div class="m" id="sum'+k+'"></div></div><input type="number" inputmode="decimal" step="any" data-k="'+k+'" value="'+r.amt+'" style="width:84px;flex:0 0 84px"><span style="flex:0 0 14px;color:var(--dim)">'+(r.g?'g':'×')+'</span></div>').join('');
+  stapleTotals();open('sStaple')}
+function stapleEntries(){return cur.rows.filter(r=>r.amt>0).map(r=>makeEntry(r.food,rowQty(r),day,nowTime(),srcOf(r.food)))}
+function stapleTotals(){cur.rows.forEach((r,k)=>{const e=r.amt>0?makeEntry(r.food,rowQty(r),day,'',''):null;$('sum'+k).textContent=e?e.calories+' cal · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g:'skipped today'});
+  const t=sumEntries(stapleEntries());$('suTotal').textContent='Total '+t.cal+' cal · P'+t.p+' F'+t.f+' C'+t.c+(t.a?' A'+t.a:'')}
+$('suList').oninput=ev=>{const k=ev.target.dataset.k;if(k==null)return;cur.rows[k].amt=Math.max(0,num(ev.target.value));stapleTotals()};
+$('suGo').onclick=()=>{const es=stapleEntries();if(!es.length){toast('Nothing to log');return}for(const e of es)entries.push(e);
+  cur.rows.forEach(r=>{if(r.amt>0){r.food.lastUsed=Date.now();r.food.count=(r.food.count||0)+1}});save();render();open(null);toast('Logged '+cur.st.name)};
+$('suDefault').onclick=()=>{const keep=cur.rows.filter(r=>r.amt>0);if(!keep.length){toast('Nothing to keep');return}cur.st.items=keep.map(r=>({foodId:r.food.id,qty:rowQty(r)}));save();toast('Saved as your usual')};
+$('suEdit').onclick=()=>openBuild(cur.st);
+function openBuild(st){build={st:st||null,sel:new Map((st?st.items:[]).map(i=>[i.foodId,i.qty]))};$('sbName').value=st?st.name:'';$('sbQ').value='';$('sbDel').style.display=st?'':'none';renderBuild();open('sBuild')}
+function renderBuild(){const q=$('sbQ').value.trim().toLowerCase();
+  const fl=Object.values(foods).filter(f=>!q||f.name.toLowerCase().includes(q)).sort((a,b)=>(b.lastUsed||0)-(a.lastUsed||0));
+  $('sbSave').textContent='Save staple ('+build.sel.size+' item'+(build.sel.size===1?'':'s')+')';
+  $('sbList').innerHTML=fl.length?fl.map(f=>{const on=build.sel.has(f.id);return '<div class="item" data-b="'+esc(f.id)+'"'+(on?' style="border-color:var(--acc)"':'')+'><div><div class="n">'+(on?'✓ ':'')+esc(f.name)+'</div><div class="m">'+esc(f.serving)+' · '+f.calories+' cal</div></div></div>'}).join(''):'<div class="empty">'+(q?'No match.':'Nothing in My foods yet. Scan, add manually, or use a Claude link first.')+'</div>'}
+$('sbQ').oninput=renderBuild;
+$('sbList').onclick=ev=>{const b=ev.target.closest('[data-b]');if(!b)return;const id=b.dataset.b;if(build.sel.has(id))build.sel.delete(id);else build.sel.set(id,1);renderBuild()};
+$('sbSave').onclick=()=>{const name=$('sbName').value.trim();if(!name){toast('Name it first');return}
+  const items=[...build.sel].filter(x=>foods[x[0]]).map(x=>({foodId:x[0],qty:x[1]}));if(!items.length){toast('Pick at least one food');return}
+  if(build.st){build.st.name=name;build.st.items=items}else staples.push({id:'s'+Date.now(),name,items});save();renderStaples();open('sStaples');toast('Staple saved')};
+$('sbDel').onclick=()=>{staples=staples.filter(s=>s!==build.st);save();renderStaples();open('sStaples');toast('Staple deleted')};
+$('stNew').onclick=()=>openBuild(null);
+$('stapleList').onclick=ev=>{const el=ev.target.closest('[data-s]');if(el)openStaple(el.dataset.s)};
+$('bStaples').onclick=()=>{renderStaples();open('sStaples')};
 
 /* link import: .../#add=name;P;F;C;A;cal|name;...&date=YYYY-MM-DD */
 let imp=null;
@@ -265,7 +330,7 @@ function checkLink(){let q;try{q=new URLSearchParams(location.hash.slice(1))}cat
   $('iInfo').textContent='Logging to '+day+' · total '+t.cal+' cal · P'+t.p+' F'+t.f+' C'+t.c+(t.a?' A'+t.a:'');
   $('iList').innerHTML=items.map(f=>'<div class="item"><div><div class="n">'+esc(f.name)+'</div><div class="m">P'+f.protein_g+' F'+f.fat_g+' C'+f.carbs_g+(f.alcohol_g?' A'+f.alcohol_g:'')+'</div></div><div class="c">'+f.calories+'</div></div>').join('');
   open('sImport')}
-$('iGo').onclick=()=>{if(!imp)return;for(const f of imp){const id='m:'+f.name.toLowerCase(),old=foods[id];const food=Object.assign({id,barcode:'',count:(old&&old.count)||0},f,{recipe:!!(f.recipe||(old&&old.recipe))});foods[id]=food;log(food,1,'estimate')}
+$('iGo').onclick=()=>{if(!imp)return;for(const f of imp){const id='m:'+f.name.toLowerCase(),old=foods[id];const food=Object.assign({id,barcode:'',count:(old&&old.count)||0},f,{recipe:!!(f.recipe||(old&&old.recipe)),est:true});foods[id]=food;log(food,1,'estimate')}
   const n=imp.length;imp=null;open(null);toast('Logged '+n+' item'+(n===1?'':'s'))};
 window.addEventListener('hashchange',checkLink);
 
