@@ -51,6 +51,9 @@ th:first-child,td:first-child{text-align:left}
 th{color:var(--dim);font-weight:500;font-size:12px}
 tr.avg td{font-weight:700;border-bottom:none}
 td.none{color:var(--dim)}
+.tgrow{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;font-size:12px;color:var(--dim);text-align:center;cursor:pointer;min-height:20px}
+.tot i{display:block;font-style:normal;font-size:11px;color:var(--dim);margin-top:2px}
+.tot i.over{color:var(--warn)}
 .blk{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 2px 8px;margin-top:8px;color:var(--dim);font-size:14px;border-bottom:1px solid var(--line);margin-bottom:6px;cursor:pointer}
 .blk b{color:var(--text);font-size:15px}
 #toast{position:fixed;left:50%;bottom:160px;transform:translateX(-50%);background:#000;border:1px solid var(--line);padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:9}
@@ -59,7 +62,9 @@ td.none{color:var(--dim)}
 <body>
 <div class="top"><h1>Silicon <span id="ver" style="font-size:12px;color:var(--dim);font-weight:400"></span></h1><button class="sm" id="bWeek">Week / Export</button></div>
 <div class="datebar"><button id="bPrev" aria-label="Previous day">&#8249;</button><div class="d" id="dLabel"></div><button id="bNext" aria-label="Next day">&#8250;</button></div>
+<div class="tgrow" id="tgt"></div>
 <div class="totals" id="totals"></div>
+<div class="hint" id="trend" style="text-align:center;margin:0 0 8px"></div>
 <div class="row" id="modeRow" style="margin-bottom:6px"><button class="sm" id="mEat">Log as eaten</button><button class="sm" id="mQueue">Add to queue</button></div>
 <div class="hint" id="modeNote" style="margin:0 0 6px"></div>
 <div id="list"></div>
@@ -167,6 +172,19 @@ td.none{color:var(--dim)}
   <div class="row" style="margin-top:14px"><button class="pri" id="iGo">Log all</button></div>
 </div></div>
 
+<div class="sheet" id="sTargets"><div class="in">
+  <div class="top"><h1>Daily targets</h1><button class="sm" data-close>Cancel</button></div>
+  <div class="hint">Use the numbers Coach Claude gave you. Leave calories blank to compute them from the macros.</div>
+  <div class="row">
+    <div><label>Protein g</label><input id="tP" type="number" inputmode="decimal" step="any"></div>
+    <div><label>Fat g</label><input id="tF" type="number" inputmode="decimal" step="any"></div>
+    <div><label>Carbs g</label><input id="tC" type="number" inputmode="decimal" step="any"></div>
+  </div>
+  <label>Calories</label><input id="tCal" type="number" inputmode="decimal" step="any" placeholder="auto">
+  <div class="row" style="margin-top:14px"><button class="pri" id="tSave">Save targets</button></div>
+  <div class="row" style="margin-top:10px"><button class="bad" id="tClear">Remove targets</button></div>
+</div></div>
+
 <div class="sheet" id="sPaste"><div class="in">
   <div class="top"><h1>Paste a meal</h1><button class="sm" data-close>Cancel</button></div>
   <div class="hint">Paste the link or the item lines Claude gave you.</div>
@@ -194,9 +212,10 @@ function toCSV(entries,end){const start=shiftDay(end,-6);
   const out=['date,time,name,servings,calories,protein_g,fat_g,carbs_g,alcohol_g,source'];
   for(const e of rows)out.push([e.date,e.time,e.name,e.servings,e.calories,e.protein_g,e.fat_g,e.carbs_g,e.alcohol_g,e.source].map(csvCell).join(','));
   return out.join('\n')+'\n'}
-function summaryText(entries,end){const w=weekSummary(entries,end),L=['Food log '+shiftDay(end,-6)+' to '+end,'date | cal | P | F | C | alcohol g'];
+function parseTargets(v){const f=String(v||'').split(';').map(x=>num(x)),p=f[1]||0,fa=f[2]||0,c=f[3]||0;if(!(f[0]>0||p>0||fa>0||c>0))return null;return {cal:Math.round(f[0]>0?f[0]:calcCal(p,c,fa,0)),p:Math.round(p),f:Math.round(fa),c:Math.round(c)}}
+function summaryText(entries,end,tg){const w=weekSummary(entries,end),L=['Food log '+shiftDay(end,-6)+' to '+end,'date | cal | P | F | C | alcohol g'];
   for(const d of w.days)L.push(d.n?[d.date,d.cal,d.p,d.f,d.c,d.a].join(' | '):d.date+' | not logged');
-  L.push('Avg of '+w.logged+' logged day'+(w.logged===1?'':'s')+' | '+[w.avg.cal,w.avg.p,w.avg.f,w.avg.c,w.avg.a].join(' | '));return L.join('\n')}
+  L.push('Avg of '+w.logged+' logged day'+(w.logged===1?'':'s')+' | '+[w.avg.cal,w.avg.p,w.avg.f,w.avg.c,w.avg.a].join(' | '));if(tg)L.push('Daily target | '+[tg.cal,tg.p,tg.f,tg.c].join(' | '));return L.join('\n')}
 function parseOFF(j){if(!j||j.status!==1||!j.product)return null;const p=j.product,n=p.nutriments||{};
   const suf=(n['energy-kcal_serving']!=null||n['proteins_serving']!=null)?'_serving':'_100g';
   const g=k=>n[k+suf];if(g('energy-kcal')==null&&g('proteins')==null&&g('fat')==null&&g('carbohydrates')==null)return null;
@@ -221,24 +240,28 @@ function parsePaste(t){t=String(t||'').trim();const i=t.indexOf('#add=');
 function servingGrams(food){const m=/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i.exec(((food&&food.serving)||'')+' | '+((food&&food.name)||''));return m?parseFloat(m[1]):0}
 const BLOCKS=['12–3 AM','3–6 AM','6–9 AM','9 AM–noon','Noon–3 PM','3–6 PM','6–9 PM','9 PM–midnight'];
 function blockOf(time){return Math.min(7,Math.max(0,Math.floor((parseInt(String(time||'').slice(0,2),10)||0)/3)))}
-if(typeof module!=='undefined')module.exports={parsePaste,BLOCKS,blockOf,servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
+if(typeof module!=='undefined')module.exports={parseTargets,parsePaste,BLOCKS,blockOf,servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.6';
+const APP_VERSION='1.7';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-let staples=store.get('si_staples',[]);
+let staples=store.get('si_staples',[]),targets=store.get('si_targets',null);
 let entries=store.get('si_entries',[]),foods=store.get('si_foods',{}),day=ymd(new Date()),pending=null,curEntry=null,stream=null,scanning=false;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const save=()=>{store.set('si_entries',entries);store.set('si_foods',foods);store.set('si_staples',staples)};
+const save=()=>{store.set('si_entries',entries);store.set('si_foods',foods);store.set('si_staples',staples);store.set('si_targets',targets)};
 const srcOf=f=>f.barcode?'barcode':f.est?'estimate':'manual';
 function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',1800)}
 function open(id){document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));if(id)$(id).classList.add('on');if(id!=='sScan')stopScan()}
 function nowTime(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
 
+function trendText(){if(!targets)return '';const w=weekSummary(eaten(),shiftDay(day,-1));if(!w.logged)return '';
+  const d=(v,g,u)=>{const x=Math.round(v-g);return x===0?'on target':Math.abs(x)+u+(x<0?' under':' over')};
+  return 'Previous 7 days · '+w.logged+' logged · avg '+w.avg.cal+' cal ('+d(w.avg.cal,targets.cal,'')+') · protein '+Math.round(w.avg.p)+' g ('+d(w.avg.p,targets.p,' g')+')'}
+function openTargets(tg){tg=tg||targets||{};$('tP').value=tg.p||'';$('tF').value=tg.f||'';$('tC').value=tg.c||'';$('tCal').value=tg.cal||'';$('tClear').style.display=targets?'':'none';open('sTargets')}
 let addMode='eat';const closed=new Set();
 const eaten=()=>entries.filter(e=>!e.planned);
 const queueing=()=>addMode==='queue'||day>ymd(new Date());
@@ -246,7 +269,10 @@ const blockStart=i=>String(i*3).padStart(2,'0')+':00';
 function render(){const today=ymd(new Date()),future=day>today;if(future)addMode='queue';
   $('dLabel').textContent=day===today?'Today':day===shiftDay(today,-1)?'Yesterday':day===shiftDay(today,1)?'Tomorrow':new Date(day+'T12:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
   const all=entries.filter(e=>e.date===day).sort((a,b)=>a.time.localeCompare(b.time)),list=all.filter(e=>!e.planned),queue=all.filter(e=>e.planned),t=sumEntries(list);
-  $('totals').innerHTML=[['cal','Cal',t.cal],['','Protein',t.p],['','Fat',t.f],['','Carbs',t.c],['','Alc g',t.a]].map(x=>'<div class="tot '+x[0]+'"><b>'+x[2]+'</b><span>'+x[1]+'</span></div>').join('');
+  const left=(v,g)=>{if(!targets)return '';const x=Math.round(g-v);return '<i'+(x<0?' class="over"':'')+'>'+Math.abs(x)+(x<0?' over':' left')+'</i>'};
+  $('tgt').innerHTML=targets?'<div>Target '+targets.cal+'</div><div>'+targets.p+'</div><div>'+targets.f+'</div><div>'+targets.c+'</div><div></div>':'<div style="grid-column:1/-1">Set daily targets</div>';
+  $('totals').innerHTML=[['cal','Cal',t.cal,targets&&left(t.cal,targets.cal)],['','Protein',t.p,targets&&left(t.p,targets.p)],['','Fat',t.f,targets&&left(t.f,targets.f)],['','Carbs',t.c,targets&&left(t.c,targets.c)],['','Alc g',t.a,'']].map(x=>'<div class="tot '+x[0]+'"><b>'+x[2]+'</b><span>'+x[1]+'</span>'+(x[3]||'')+'</div>').join('');
+  $('trend').textContent=trendText();
   $('modeRow').style.display=future?'none':'';$('mEat').className='sm'+(addMode==='eat'?' pri':'');$('mQueue').className='sm'+(addMode==='queue'?' pri':'');
   $('modeNote').textContent=future?'Future day: anything added here goes to the queue.':addMode==='queue'?'Queue mode: new items wait in the queue until you check them off.':'';
   const row=e=>'<div class="item" data-e="'+esc(e.id)+'"><div style="flex:1"><div class="n">'+esc(e.name)+'</div><div class="m">'+e.servings+' × · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+(e.alcohol_g?' A'+e.alcohol_g:'')+'</div></div><div class="c">'+e.calories+'</div>'+(e.planned&&day===today?'<button class="sm pri" data-chk="'+esc(e.id)+'" style="flex:0 0 48px" aria-label="Ate it now">✓</button>':'')+'</div>';
@@ -336,15 +362,15 @@ $('codeGo').onclick=()=>{stopScan();lookup($('codeIn').value)};
 function renderWeek(){const w=weekSummary(eaten(),day);$('wRange').textContent=shiftDay(day,-6)+' to '+day+' (ends on the day selected on the main screen)';
   $('wTable').innerHTML='<tr><th>Day</th><th>Cal</th><th>P</th><th>F</th><th>C</th><th>Alc</th></tr>'+w.days.map(d=>{const lbl=new Date(d.date+'T12:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric'});
     return d.n?'<tr><td>'+lbl+'</td><td>'+d.cal+'</td><td>'+d.p+'</td><td>'+d.f+'</td><td>'+d.c+'</td><td>'+d.a+'</td></tr>':'<tr><td>'+lbl+'</td><td class="none" colspan="5">not logged</td></tr>'}).join('')+
-    '<tr class="avg"><td>Avg ('+w.logged+'d)</td><td>'+w.avg.cal+'</td><td>'+w.avg.p+'</td><td>'+w.avg.f+'</td><td>'+w.avg.c+'</td><td>'+w.avg.a+'</td></tr>'}
+    '<tr class="avg"><td>Avg ('+w.logged+'d)</td><td>'+w.avg.cal+'</td><td>'+w.avg.p+'</td><td>'+w.avg.f+'</td><td>'+w.avg.c+'</td><td>'+w.avg.a+'</td></tr>'+(targets?'<tr><td>Target</td><td>'+targets.cal+'</td><td>'+targets.p+'</td><td>'+targets.f+'</td><td>'+targets.c+'</td><td></td></tr>':'')}
 function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}
 async function shareFile(name,text,type){try{const f=new File([text],name,{type});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return true}}catch(e){if(e.name==='AbortError')return false}download(name,text,type);return true}
 $('wShare').onclick=()=>shareFile('food-log_'+shiftDay(day,-6)+'_to_'+day+'.csv',toCSV(eaten(),day),'text/csv');
-$('wCopy').onclick=async()=>{const t=summaryText(eaten(),day);try{await navigator.clipboard.writeText(t);toast('Summary copied')}catch(e){shareFile('food-summary_'+day+'.txt',t,'text/plain')}};
-$('wBackup').onclick=async()=>{if(await shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods,staples}),'application/json')){store.set('si_lastBackup',Date.now());render()}};
+$('wCopy').onclick=async()=>{const t=summaryText(eaten(),day,targets);try{await navigator.clipboard.writeText(t);toast('Summary copied')}catch(e){shareFile('food-summary_'+day+'.txt',t,'text/plain')}};
+$('wBackup').onclick=async()=>{if(await shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods,staples,targets}),'application/json')){store.set('si_lastBackup',Date.now());render()}};
 $('wRestore').onclick=()=>$('wFile').click();
 $('wFile').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.entries)||typeof j.foods!=='object')throw 0;
-    const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);if(Array.isArray(j.staples)){const hs=new Set(staples.map(x=>x.id));for(const x of j.staples)if(!hs.has(x.id))staples.push(x)}save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
+    const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);if(Array.isArray(j.staples)){const hs=new Set(staples.map(x=>x.id));for(const x of j.staples)if(!hs.has(x.id))staples.push(x)}if(j.targets&&!targets)targets=j.targets;save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
 
 /* staples: a usual meal = a named set of foods with usual amounts, adjustable per day */
 let cur=null,build=null;
@@ -397,9 +423,13 @@ $('iGo').onclick=()=>{if(!imp)return;const today=ymd(new Date()),qd=queueing(),t
     const food={id,barcode:'',name:f.name,serving:f.serving,calories:f.calories,protein_g:f.protein_g,fat_g:f.fat_g,carbs_g:f.carbs_g,alcohol_g:f.alcohol_g,recipe:!!(f.recipe||(old&&old.recipe)),est:true,count:((old&&old.count)||0)+1,lastUsed:Date.now()};
     foods[id]=food;const e=makeEntry(food,rowQty(r),day,time,'estimate');if(qd)e.planned=true;entries.push(e);n++}
   if(!n){toast('Nothing to log');return}imp=null;save();render();open(null);toast((qd?'Queued ':'Logged ')+n+' item'+(n===1?'':'s'))};
+$('tgt').onclick=()=>openTargets();
+$('tSave').onclick=()=>{const tg=parseTargets([$('tCal').value,$('tP').value,$('tF').value,$('tC').value].join(';'));if(!tg){toast('Enter at least one number');return}targets=tg;save();render();open(null);toast('Targets saved')};
+$('tClear').onclick=()=>{targets=null;save();render();open(null);toast('Targets removed')};
 $('pGo').onclick=()=>{const items=parsePaste($('pText').value);if(!items.length){toast('Could not read any food from that');return}showImport(items)};
-function checkLink(){let q;try{q=new URLSearchParams(location.hash.slice(1))}catch(e){return}const s=q.get('add');if(!s)return;
-  const items=parseImport(s);try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
+function checkLink(){let q;try{q=new URLSearchParams(location.hash.slice(1))}catch(e){return}const tv=q.get('targets'),s=q.get('add');if(!tv&&!s)return;try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
+  if(tv){const tg=parseTargets(tv);if(tg){render();openTargets(tg)}return}
+  const items=parseImport(s);
   if(!items.length)return;const d=q.get('date');if(d&&/^\d{4}-\d\d-\d\d$/.test(d)&&d<=shiftDay(ymd(new Date()),7)){day=d;addMode='eat'}render();showImport(items)}
 window.addEventListener('hashchange',checkLink);
 

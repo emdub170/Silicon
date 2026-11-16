@@ -28,3 +28,12 @@ where each amount can be adjusted and a time block picked. The same text can be 
 - `calories` optional (blank = 4P + 4C + 9F + 7A); `r` optional (files the food under Recipes); `date` optional
 - names must not contain `;` or `|`
 - entries are logged with source `estimate`; each food is saved to My foods for reuse at any amount
+
+## Daily targets
+
+Tap the target row above the totals to enter calories / protein / fat / carbs, or open a link:
+
+    https://emdub170.github.io/Silicon/#targets=<cal>;<protein>;<fat>;<carbs>   (URL-encode the semicolons)
+
+The link opens the targets screen prefilled; nothing is saved until confirmed. With targets set, each tile shows what is
+left, and a line shows the average of the previous 7 days (logged days only) against the target.

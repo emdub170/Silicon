@@ -87,3 +87,10 @@ assert.deepStrictEqual(L.parsePaste('[Log: dinner](' + link + ')'), mi);
 assert.deepStrictEqual(L.parsePaste(meal.split('|').join('\n')), mi);
 assert.deepStrictEqual(L.parsePaste('hello there'), [{ name: 'hello there', serving: '1 serving', protein_g: 0, fat_g: 0, carbs_g: 0, alcohol_g: 0, calories: 0 }]);
 console.log('meal import tests passed');
+
+// targets
+assert.deepStrictEqual(L.parseTargets('1900;180;63;158'), { cal: 1900, p: 180, f: 63, c: 158 });
+assert.deepStrictEqual(L.parseTargets(';180;63;158'), { cal: 1919, p: 180, f: 63, c: 158 });
+assert.strictEqual(L.parseTargets(''), null);
+assert.ok(L.summaryText(entries, '2026-11-11', { cal: 1900, p: 180, f: 63, c: 158 }).endsWith('Daily target | 1900 | 180 | 63 | 158'));
+console.log('target tests passed');
