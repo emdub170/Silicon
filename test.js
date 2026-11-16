@@ -74,3 +74,16 @@ console.log('staple tests passed');
 assert.strictEqual(L.BLOCKS.length, 8);
 assert.deepStrictEqual(['00:00', '02:59', '03:00', '08:59', '09:00', '12:00', '20:59', '23:59', ''].map(L.blockOf), [0, 0, 1, 2, 3, 4, 6, 7, 0]);
 console.log('block tests passed');
+
+// per-100 g foods with an amount, and paste parsing
+const meal = 'Chicken breast cooked (100 g);31;3.6;0;0;165;;150g|Green beans cooked (100 g);1.9;0.3;7.9;0;35;;100g|Sweet potato roasted (100 g);2;0.2;20.7;0;90;;50g|Egg 1 large;6.3;4.8;0.4;0;72;;3';
+const mi = L.parseImport(meal);
+assert.deepStrictEqual(mi.map(x => [x.serving, x.qty]), [['100 g', 1.5], ['100 g', 1], ['100 g', 0.5], ['1 serving', 3]]);
+assert.strictEqual(L.parseImport('Toast;3;1;15;0;;r')[0].qty, undefined);
+assert.strictEqual(L.parseImport('Toast;3;1;15;0;;;40g')[0].qty, undefined); // grams given but no gram weight in the name
+const link = 'https://emdub170.github.io/Silicon/#add=' + encodeURIComponent(meal) + '&date=2026-11-16';
+assert.deepStrictEqual(L.parsePaste(link), mi);
+assert.deepStrictEqual(L.parsePaste('[Log: dinner](' + link + ')'), mi);
+assert.deepStrictEqual(L.parsePaste(meal.split('|').join('\n')), mi);
+assert.deepStrictEqual(L.parsePaste('hello there'), [{ name: 'hello there', serving: '1 serving', protein_g: 0, fat_g: 0, carbs_g: 0, alcohol_g: 0, calories: 0 }]);
+console.log('meal import tests passed');

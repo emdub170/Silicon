@@ -17,12 +17,14 @@ On every release, bump `APP_VERSION` in `index.html` (shown in the header) and `
 
 ## Logging from a Claude chat (link format)
 
-Claude resolves a described meal into macros and replies with a link. Tapping it opens the app with a confirm screen.
+Claude resolves a described meal into macros and replies with a link. Tapping it opens the app with a confirm screen
+where each amount can be adjusted and a time block picked. The same text can be pasted in via Manual -> Paste a meal.
 
     https://emdub170.github.io/Silicon/#add=<items>&date=YYYY-MM-DD
 
-- `<items>`: `name;protein_g;fat_g;carbs_g;alcohol_g;calories;r`, items separated by `|`, the whole value URL-encoded
-- trailing `;r` is optional and files the food under Recipes in My foods
-- `calories` is optional (blank = 4P + 4C + 9F + 7A); `date` is optional (default = the day open in the app)
-- Names must not contain `;` or `|`
-- Entries are logged with source `estimate`
+- `<items>`: `name;protein_g;fat_g;carbs_g;alcohol_g;calories;r;amount`, items separated by `|`, the whole value URL-encoded
+- macros describe one serving; `amount` is how much was eaten: a count (`2`) or grams (`150g`)
+- grams need a gram weight in the name, e.g. `Chicken breast cooked (100 g)` with macros per 100 g
+- `calories` optional (blank = 4P + 4C + 9F + 7A); `r` optional (files the food under Recipes); `date` optional
+- names must not contain `;` or `|`
+- entries are logged with source `estimate`; each food is saved to My foods for reuse at any amount
