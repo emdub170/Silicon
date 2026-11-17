@@ -122,6 +122,9 @@ td.none{color:var(--dim)}
 <div class="sheet" id="sEntry"><div class="in">
   <div class="top"><h1 id="eName"></h1><button class="sm" data-close>Close</button></div>
   <div class="hint" id="eInfo"></div>
+  <label>Amount eaten</label>
+  <div class="row"><input id="eAmt" type="number" inputmode="decimal" step="any" style="flex:2"><span id="eUnit" style="flex:0 0 16px;color:var(--dim)"></span><button class="pri" id="eAmtSave" style="flex:2">Save amount</button></div>
+  <div class="hint" id="eAmtPrev"></div>
   <label id="eBlkLabel">Time block</label>
   <div id="eBlocks" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px"></div>
   <div class="row" style="margin-top:14px"><button id="eAgain">Log again today</button><button class="bad" id="eDel">Delete</button></div>
@@ -244,7 +247,7 @@ if(typeof module!=='undefined')module.exports={parseTargets,parsePaste,BLOCKS,bl
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.7';
+const APP_VERSION='1.8';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -322,7 +325,14 @@ $('foodList').onclick=ev=>{const q=ev.target.closest('[data-q]'),f=ev.target.clo
 function moveEntry(e,blk){const today=ymd(new Date()),was=!!e.planned;e.planned=false;if(e.date>today)e.date=today;
   if(was||blockOf(e.time)!==blk)e.time=(e.date===today&&blk===blockOf(nowTime()))?nowTime():blockStart(blk)}
 function copyToday(src){const today=ymd(new Date());let n=0;for(const e of src)entries.push(Object.assign({},e,{id:today+'-'+Date.now()+'-c'+(n++),date:today,planned:false}));save();render();toast('Copied '+n+' item'+(n===1?'':'s')+' to today')}
-function openEntry(e){curEntry=e;const today=ymd(new Date());$('eName').textContent=e.name;
+const entryG=e=>servingGrams({name:e.name,serving:(foods[e.foodId]||{}).serving});
+function amtQty(){const g=entryG(curEntry),v=num($('eAmt').value);return q3(g?v/g:v)}
+/* new macros for a changed amount: from the saved food when it still matches this entry, otherwise by scaling the entry */
+function amtScaled(q){const e=curEntry,f=foods[e.foodId],o=e.servings>0?e.servings:1;
+  if(f&&Math.abs(f.calories*o-e.calories)<=1&&Math.abs(f.protein_g*o-e.protein_g)<=0.2)return {servings:q,calories:Math.round(f.calories*q),protein_g:r1(f.protein_g*q),fat_g:r1(f.fat_g*q),carbs_g:r1(f.carbs_g*q),alcohol_g:r1(f.alcohol_g*q)};
+  const k=q/o;return {servings:q,calories:Math.round(e.calories*k),protein_g:r1(e.protein_g*k),fat_g:r1(e.fat_g*k),carbs_g:r1(e.carbs_g*k),alcohol_g:r1(e.alcohol_g*k)}}
+function amtPrev(){const q=amtQty();if(!(q>0)){$('eAmtPrev').textContent='';return}const n=amtScaled(q);$('eAmtPrev').textContent='= '+n.calories+' cal · P'+n.protein_g+' F'+n.fat_g+' C'+n.carbs_g+(n.alcohol_g?' A'+n.alcohol_g:'')}
+function openEntry(e){curEntry=e;{const g=entryG(e);$('eAmt').value=g?Math.round(e.servings*g*10)/10:e.servings;$('eUnit').textContent=g?'g':'×';amtPrev()}const today=ymd(new Date());$('eName').textContent=e.name;
   $('eInfo').textContent=(e.planned?'In the queue for '+e.date:e.date+' '+e.time)+' · '+e.servings+' × · '+e.calories+' cal · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+' A'+e.alcohol_g;
   $('eBlkLabel').textContent=e.planned?('Ate it — when?'+(e.date>today?' (moves it to today)':'')):'Time block (tap to move)';
   const cb=e.planned?-1:blockOf(e.time);$('eBlocks').innerHTML=BLOCKS.map((b,i)=>'<button class="sm'+(i===cb?' pri':'')+'" data-mv="'+i+'" style="font-size:13px;padding:8px 2px">'+b+'</button>').join('');
@@ -333,6 +343,8 @@ $('list').onclick=ev=>{const T=ev.target,find=id=>entries.find(e=>e.id===id);let
   if(T.closest('[data-copyday]')){copyToday(eaten().filter(e=>e.date===day));return}
   if((el=T.closest('[data-e]'))){const e=find(el.dataset.e);if(e)openEntry(e);return}
   if((el=T.closest('[data-blk]'))){const k=day+'#'+el.dataset.blk;if(closed.has(k))closed.delete(k);else closed.add(k);render()}};
+$('eAmt').oninput=amtPrev;
+$('eAmtSave').onclick=()=>{if(!curEntry)return;const q=amtQty();if(!(q>0)){toast('Enter an amount above 0');return}Object.assign(curEntry,amtScaled(q));save();render();open(null);toast('Amount updated')};
 $('eBlocks').onclick=ev=>{const b=ev.target.closest('[data-mv]');if(!b||!curEntry)return;moveEntry(curEntry,+b.dataset.mv);save();render();open(null);toast('Moved')};
 $('eQueue').onclick=()=>{if(!curEntry)return;if(curEntry.planned)curEntry.date=ymd(new Date());else curEntry.planned=true;save();render();open(null);toast('Queued')};
 $('mEat').onclick=()=>{addMode='eat';render()};$('mQueue').onclick=()=>{addMode='queue';render()};
