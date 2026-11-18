@@ -56,6 +56,9 @@ td.none{color:var(--dim)}
 .tot i.over{color:var(--warn)}
 .blk{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 2px 8px;margin-top:8px;color:var(--dim);font-size:14px;border-bottom:1px solid var(--line);margin-bottom:6px;cursor:pointer}
 .blk b{color:var(--text);font-size:15px}
+#list .item{touch-action:pan-y;position:relative}
+#list .item.swiping{transition:none}
+#list .item.snap{transition:transform .18s}
 #toast{position:fixed;left:50%;bottom:160px;transform:translateX(-50%);background:#000;border:1px solid var(--line);padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:9}
 </style>
 </head>
@@ -247,7 +250,7 @@ if(typeof module!=='undefined')module.exports={parseTargets,parsePaste,BLOCKS,bl
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.8';
+const APP_VERSION='1.9';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -277,10 +280,10 @@ function render(){const today=ymd(new Date()),future=day>today;if(future)addMode
   $('totals').innerHTML=[['cal','Cal',t.cal,targets&&left(t.cal,targets.cal)],['','Protein',t.p,targets&&left(t.p,targets.p)],['','Fat',t.f,targets&&left(t.f,targets.f)],['','Carbs',t.c,targets&&left(t.c,targets.c)],['','Alc g',t.a,'']].map(x=>'<div class="tot '+x[0]+'"><b>'+x[2]+'</b><span>'+x[1]+'</span>'+(x[3]||'')+'</div>').join('');
   $('trend').textContent=trendText();
   $('modeRow').style.display=future?'none':'';$('mEat').className='sm'+(addMode==='eat'?' pri':'');$('mQueue').className='sm'+(addMode==='queue'?' pri':'');
-  $('modeNote').textContent=future?'Future day: anything added here goes to the queue.':addMode==='queue'?'Queue mode: new items wait in the queue until you check them off.':'';
+  $('modeNote').textContent=future?'Future day: anything added here goes to the queue.':addMode==='queue'?'Queue mode: new items wait in the queue. Swipe an item right to mark it eaten.':'';
   const row=e=>'<div class="item" data-e="'+esc(e.id)+'"><div style="flex:1"><div class="n">'+esc(e.name)+'</div><div class="m">'+e.servings+' × · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+(e.alcohol_g?' A'+e.alcohol_g:'')+'</div></div><div class="c">'+e.calories+'</div>'+(e.planned&&day===today?'<button class="sm pri" data-chk="'+esc(e.id)+'" style="flex:0 0 48px" aria-label="Ate it now">✓</button>':'')+'</div>';
   let h='';
-  if(queue.length){const qt=sumEntries(queue);h+='<div class="blk" style="cursor:default"><b>Queue · prepped, not eaten</b><span>'+queue.length+' · '+qt.cal+' cal · P'+qt.p+'</span></div>'+queue.map(row).join('')}
+  if(queue.length){const qt=sumEntries(queue);h+='<div class="blk" style="cursor:default"><b>Queue · swipe right when eaten</b><span>'+queue.length+' · '+qt.cal+' cal · P'+qt.p+'</span></div>'+queue.map(row).join('')}
   for(let i=0;i<8;i++){const be=list.filter(e=>blockOf(e.time)===i);if(!be.length)continue;const bt=sumEntries(be),shut=closed.has(day+'#'+i);
     h+='<div class="blk" data-blk="'+i+'"><b>'+(shut?'▸ ':'▾ ')+BLOCKS[i]+'</b><span>'+be.length+' · '+bt.cal+' cal · P'+bt.p+'</span>'+(day<today?'<button class="sm" data-copy="'+i+'" style="flex:0 0 auto;min-height:34px;padding:4px 10px;font-size:13px">Copy to today</button>':'')+'</div>'+(shut?'':be.map(row).join(''))}
   if(!all.length)h='<div class="empty">'+(future?'Nothing queued. Add prepped food here and check it off when you eat it.':'Nothing logged. Scan, pick a staple or a food, or add manually.')+'</div>';
@@ -347,6 +350,19 @@ $('eAmt').oninput=amtPrev;
 $('eAmtSave').onclick=()=>{if(!curEntry)return;const q=amtQty();if(!(q>0)){toast('Enter an amount above 0');return}Object.assign(curEntry,amtScaled(q));save();render();open(null);toast('Amount updated')};
 $('eBlocks').onclick=ev=>{const b=ev.target.closest('[data-mv]');if(!b||!curEntry)return;moveEntry(curEntry,+b.dataset.mv);save();render();open(null);toast('Moved')};
 $('eQueue').onclick=()=>{if(!curEntry)return;if(curEntry.planned)curEntry.date=ymd(new Date());else curEntry.planned=true;save();render();open(null);toast('Queued')};
+/* swipe right on an entry: queued -> eaten now, eaten -> back to the queue */
+function toggleEntry(e){const today=ymd(new Date());if(e.planned){const moved=e.date>today;moveEntry(e,blockOf(nowTime()));save();render();toast(moved?'Eaten — moved to today':'Eaten')}
+  else{e.planned=true;save();render();toast('Back in the queue')}}
+let sw=null,swallow=false;
+$('list').addEventListener('touchstart',ev=>{const el=ev.target.closest('[data-e]');if(!el||ev.target.closest('button'))return;const t=ev.touches[0];sw={el,x:t.clientX,y:t.clientY,dx:0,on:false}},{passive:true});
+$('list').addEventListener('touchmove',ev=>{if(!sw)return;const t=ev.touches[0],dx=t.clientX-sw.x,dy=t.clientY-sw.y;
+  if(!sw.on){if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){sw=null;return}if(dx>12&&dx>Math.abs(dy)){sw.on=true;sw.el.classList.add('swiping')}}
+  if(sw.on){sw.dx=Math.max(0,dx);sw.el.style.transform='translateX('+sw.dx+'px)';sw.el.style.borderColor=sw.dx>90?'var(--acc)':''}},{passive:true});
+$('list').addEventListener('touchend',()=>{if(!sw)return;const s=sw;sw=null;if(!s.on)return;swallow=true;setTimeout(()=>swallow=false,350);
+  s.el.classList.remove('swiping');s.el.classList.add('snap');s.el.style.transform='';s.el.style.borderColor='';
+  if(s.dx>90){const e=entries.find(x=>x.id===s.el.dataset.e);if(e)toggleEntry(e)}});
+$('list').addEventListener('touchcancel',()=>{if(sw){sw.el.style.transform='';sw.el.style.borderColor='';sw=null}});
+$('list').addEventListener('click',ev=>{if(swallow){ev.stopImmediatePropagation();ev.preventDefault()}},true);
 $('mEat').onclick=()=>{addMode='eat';render()};$('mQueue').onclick=()=>{addMode='queue';render()};
 $('eDel').onclick=()=>{entries=entries.filter(e=>e!==curEntry);save();render();open(null);toast('Deleted')};
 $('eAgain').onclick=()=>{const e=Object.assign({},curEntry,{id:day+'-'+Date.now(),date:ymd(new Date()),time:nowTime()});entries.push(e);day=e.date;save();render();open(null);toast('Logged')};
