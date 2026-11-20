@@ -99,6 +99,7 @@ td.none{color:var(--dim)}
     <div><label>Alcohol g</label><input id="fA" type="number" inputmode="decimal" step="any"></div>
     <div><label>Calories</label><input id="fCal" type="number" inputmode="decimal" step="any" placeholder="auto"></div>
   </div>
+  <div class="hint" id="fCalHint" style="cursor:pointer"></div>
   <div class="row" style="margin-top:8px"><button class="sm" id="fDrink">+1 standard drink (14 g alcohol)</button></div>
   <div class="hint">Calories left blank = 4P + 4C + 9F + 7A. Saved to My foods for one-tap logging next time.</div>
   <label style="display:flex;align-items:center;gap:10px;margin-top:14px;color:var(--text);font-size:15px"><input type="checkbox" id="fRecipe" style="width:22px;height:22px;min-height:22px;flex:0 0 22px"> Recipe / home-cooked</label>
@@ -125,9 +126,9 @@ td.none{color:var(--dim)}
 <div class="sheet" id="sEntry"><div class="in">
   <div class="top"><h1 id="eName"></h1><button class="sm" data-close>Close</button></div>
   <div class="hint" id="eInfo"></div>
-  <label>Amount eaten</label>
-  <div class="row"><input id="eAmt" type="number" inputmode="decimal" step="any" style="flex:2"><span id="eUnit" style="flex:0 0 16px;color:var(--dim)"></span><button class="pri" id="eAmtSave" style="flex:2">Save amount</button></div>
+  <div class="row"><div><label>Servings eaten</label><input id="eAmt" type="number" inputmode="decimal" step="any"></div><div id="eGwrap"><label>Grams eaten</label><input id="eG" type="number" inputmode="decimal" step="any"></div></div>
   <div class="hint" id="eAmtPrev"></div>
+  <div class="row"><button class="pri" id="eAmtSave">Save amount</button></div>
   <label id="eBlkLabel">Time block</label>
   <div id="eBlocks" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px"></div>
   <div class="row" style="margin-top:14px"><button id="eAgain">Log again today</button><button class="bad" id="eDel">Delete</button></div>
@@ -222,12 +223,19 @@ function parseTargets(v){const f=String(v||'').split(';').map(x=>num(x)),p=f[1]|
 function summaryText(entries,end,tg){const w=weekSummary(entries,end),L=['Food log '+shiftDay(end,-6)+' to '+end,'date | cal | P | F | C | alcohol g'];
   for(const d of w.days)L.push(d.n?[d.date,d.cal,d.p,d.f,d.c,d.a].join(' | '):d.date+' | not logged');
   L.push('Avg of '+w.logged+' logged day'+(w.logged===1?'':'s')+' | '+[w.avg.cal,w.avg.p,w.avg.f,w.avg.c,w.avg.a].join(' | '));if(tg)L.push('Daily target | '+[tg.cal,tg.p,tg.f,tg.c].join(' | '));return L.join('\n')}
+/* stated calories that cannot be right for the macros (bad database rows, kJ entered as kcal). Loose on the high side so alcohol passes. */
+function calSuspect(cal,p,c,f,a){const m=calcCal(p,c,f,a||0);return cal>3*m+100||(m>=60&&cal<0.4*m)}
+/* amount boxes use grams only when the food is defined by weight ("100 g", "32.0g", name ending "(50 g)"), not for "1 can (425 g)" */
+function gramUnit(food){const sv=String((food&&food.serving)||''),nm=String((food&&food.name)||'');
+  return (/^\s*\d+(\.\d+)?\s*g(rams?)?\s*$/i.test(sv)||/\(\s*\d+(\.\d+)?\s*g\s*\)\s*$/i.test(nm))?servingGrams(food):0}
 function parseOFF(j){if(!j||j.status!==1||!j.product)return null;const p=j.product,n=p.nutriments||{};
   const suf=(n['energy-kcal_serving']!=null||n['proteins_serving']!=null)?'_serving':'_100g';
   const g=k=>n[k+suf];if(g('energy-kcal')==null&&g('proteins')==null&&g('fat')==null&&g('carbohydrates')==null)return null;
   const name=[p.brands?String(p.brands).split(',')[0].trim():'',p.product_name||''].filter(Boolean).join(' ').trim()||'Scanned item';
-  return {name,serving:suf==='_serving'?(p.serving_size||'1 serving'):'100 g',protein_g:r1(num(g('proteins'))),fat_g:r1(num(g('fat'))),carbs_g:r1(num(g('carbohydrates'))),alcohol_g:0,
-    calories:g('energy-kcal')!=null?Math.round(num(g('energy-kcal'))):calcCal(num(g('proteins')),num(g('carbohydrates')),num(g('fat')),0)}}
+  const P=num(g('proteins')),C=num(g('carbohydrates')),F=num(g('fat')),mc=calcCal(P,C,F,0),st=g('energy-kcal')!=null?Math.round(num(g('energy-kcal'))):null;
+  const o={name,serving:suf==='_serving'?(p.serving_size||'1 serving'):'100 g',protein_g:r1(P),fat_g:r1(F),carbs_g:r1(C),alcohol_g:0,calories:st==null?mc:st};
+  if(st!=null&&calSuspect(st,P,C,F,0)){o.calories=mc;o.calFixed=st}
+  return o}
 function makeEntry(food,qty,date,time,source){const q=num(qty)||1;return {id:date+'-'+Date.now()+'-'+Math.floor(Math.random()*1e4),date,time,name:food.name,servings:q,foodId:food.id||'',
   calories:Math.round(food.calories*q),protein_g:r1(food.protein_g*q),fat_g:r1(food.fat_g*q),carbs_g:r1(food.carbs_g*q),alcohol_g:r1(food.alcohol_g*q),source}}
 /* Claude link format: name;protein;fat;carbs;alcohol;calories;r;amount  -- items separated by |
@@ -246,11 +254,11 @@ function parsePaste(t){t=String(t||'').trim();const i=t.indexOf('#add=');
 function servingGrams(food){const m=/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i.exec(((food&&food.serving)||'')+' | '+((food&&food.name)||''));return m?parseFloat(m[1]):0}
 const BLOCKS=['12–3 AM','3–6 AM','6–9 AM','9 AM–noon','Noon–3 PM','3–6 PM','6–9 PM','9 PM–midnight'];
 function blockOf(time){return Math.min(7,Math.max(0,Math.floor((parseInt(String(time||'').slice(0,2),10)||0)/3)))}
-if(typeof module!=='undefined')module.exports={parseTargets,parsePaste,BLOCKS,blockOf,servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
+if(typeof module!=='undefined')module.exports={calSuspect,gramUnit,parseTargets,parsePaste,BLOCKS,blockOf,servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.9';
+const APP_VERSION='1.10';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -298,14 +306,19 @@ function log(food,qty,source){const ne=makeEntry(food,qty,day,nowTime(),source);
 function showForm(food,opts){pending=opts||{};$('fTitle').textContent=pending.title||'Add food';$('fNote').textContent=pending.note||'';
   $('fName').value=food.name||'';$('fServing').value=food.serving||'';$('fQty').value=1;
   $('fP').value=food.protein_g??'';$('fF').value=food.fat_g??'';$('fC').value=food.carbs_g??'';$('fA').value=food.alcohol_g||'';$('fCal').value=food.calories??'';
-  $('fPasteRow').style.display=(food.name||pending.barcode)?'none':'';$('fRecipe').checked=!!food.recipe;syncG('q');$('fRemove').style.display=(pending.id&&foods[pending.id])?'':'none';
+  $('fPasteRow').style.display=(food.name||pending.barcode)?'none':'';$('fRecipe').checked=!!food.recipe;syncG('q');calHint();$('fRemove').style.display=(pending.id&&foods[pending.id])?'':'none';
   open('sForm')}
 $('fRemove').onclick=()=>{if(pending&&pending.id){delete foods[pending.id];save()}renderFoods();open('sFoods');toast('Removed from My foods')};
+function calHint(){const p=num($('fP').value),f=num($('fF').value),c=num($('fC').value),a=num($('fA').value),m=calcCal(p,c,f,a),h=$('fCalHint'),raw=$('fCal').value,cal=num(raw);
+  if(raw===''||!m||Math.abs(cal-m)<=Math.max(20,0.15*m)){h.textContent='';h.dataset.m='';return}
+  h.textContent='These macros add up to '+m+' cal, not '+Math.round(cal)+'. Tap here to use '+m+'.';h.className=calSuspect(cal,p,c,f,a)?'note':'hint';h.dataset.m=m}
+$('fCalHint').onclick=()=>{const m=$('fCalHint').dataset.m;if(m){$('fCal').value=m;calHint()}};
+['fP','fF','fC','fA','fCal'].forEach(id=>$(id).addEventListener('input',calHint));
 function syncG(from){const sg=servingGrams({serving:$('fServing').value,name:$('fName').value});$('fGrow').style.display=sg?'':'none';if(!sg)return;
   if(from==='g')$('fQty').value=q3(num($('fG').value)/sg);else $('fG').value=Math.round(num($('fQty').value)*sg*10)/10}
 $('fG').oninput=()=>syncG('g');$('fQty').oninput=$('fServing').oninput=$('fName').oninput=()=>syncG('q');
 $('fPaste').onclick=()=>{$('pText').value='';open('sPaste')};
-$('fDrink').onclick=()=>{$('fA').value=r1(num($('fA').value)+14);$('fCal').value=''};
+$('fDrink').onclick=()=>{$('fA').value=r1(num($('fA').value)+14);$('fCal').value='';calHint()};
 $('fSave').onclick=()=>{const name=$('fName').value.trim();if(!name){toast('Name it first');return}
   const p=num($('fP').value),f=num($('fF').value),c=num($('fC').value),a=num($('fA').value);
   const cal=$('fCal').value===''?calcCal(p,c,f,a):Math.round(num($('fCal').value));
@@ -329,13 +342,13 @@ function moveEntry(e,blk){const today=ymd(new Date()),was=!!e.planned;e.planned=
   if(was||blockOf(e.time)!==blk)e.time=(e.date===today&&blk===blockOf(nowTime()))?nowTime():blockStart(blk)}
 function copyToday(src){const today=ymd(new Date());let n=0;for(const e of src)entries.push(Object.assign({},e,{id:today+'-'+Date.now()+'-c'+(n++),date:today,planned:false}));save();render();toast('Copied '+n+' item'+(n===1?'':'s')+' to today')}
 const entryG=e=>servingGrams({name:e.name,serving:(foods[e.foodId]||{}).serving});
-function amtQty(){const g=entryG(curEntry),v=num($('eAmt').value);return q3(g?v/g:v)}
+function amtQty(){return q3(num($('eAmt').value))}
 /* new macros for a changed amount: from the saved food when it still matches this entry, otherwise by scaling the entry */
 function amtScaled(q){const e=curEntry,f=foods[e.foodId],o=e.servings>0?e.servings:1;
   if(f&&Math.abs(f.calories*o-e.calories)<=1&&Math.abs(f.protein_g*o-e.protein_g)<=0.2)return {servings:q,calories:Math.round(f.calories*q),protein_g:r1(f.protein_g*q),fat_g:r1(f.fat_g*q),carbs_g:r1(f.carbs_g*q),alcohol_g:r1(f.alcohol_g*q)};
   const k=q/o;return {servings:q,calories:Math.round(e.calories*k),protein_g:r1(e.protein_g*k),fat_g:r1(e.fat_g*k),carbs_g:r1(e.carbs_g*k),alcohol_g:r1(e.alcohol_g*k)}}
 function amtPrev(){const q=amtQty();if(!(q>0)){$('eAmtPrev').textContent='';return}const n=amtScaled(q);$('eAmtPrev').textContent='= '+n.calories+' cal · P'+n.protein_g+' F'+n.fat_g+' C'+n.carbs_g+(n.alcohol_g?' A'+n.alcohol_g:'')}
-function openEntry(e){curEntry=e;{const g=entryG(e);$('eAmt').value=g?Math.round(e.servings*g*10)/10:e.servings;$('eUnit').textContent=g?'g':'×';amtPrev()}const today=ymd(new Date());$('eName').textContent=e.name;
+function openEntry(e){curEntry=e;{const g=entryG(e);$('eAmt').value=e.servings;$('eGwrap').style.display=g?'':'none';$('eG').value=g?Math.round(e.servings*g*10)/10:'';amtPrev()}const today=ymd(new Date());$('eName').textContent=e.name;
   $('eInfo').textContent=(e.planned?'In the queue for '+e.date:e.date+' '+e.time)+' · '+e.servings+' × · '+e.calories+' cal · P'+e.protein_g+' F'+e.fat_g+' C'+e.carbs_g+' A'+e.alcohol_g;
   $('eBlkLabel').textContent=e.planned?('Ate it — when?'+(e.date>today?' (moves it to today)':'')):'Time block (tap to move)';
   const cb=e.planned?-1:blockOf(e.time);$('eBlocks').innerHTML=BLOCKS.map((b,i)=>'<button class="sm'+(i===cb?' pri':'')+'" data-mv="'+i+'" style="font-size:13px;padding:8px 2px">'+b+'</button>').join('');
@@ -346,7 +359,8 @@ $('list').onclick=ev=>{const T=ev.target,find=id=>entries.find(e=>e.id===id);let
   if(T.closest('[data-copyday]')){copyToday(eaten().filter(e=>e.date===day));return}
   if((el=T.closest('[data-e]'))){const e=find(el.dataset.e);if(e)openEntry(e);return}
   if((el=T.closest('[data-blk]'))){const k=day+'#'+el.dataset.blk;if(closed.has(k))closed.delete(k);else closed.add(k);render()}};
-$('eAmt').oninput=amtPrev;
+$('eAmt').oninput=()=>{const g=entryG(curEntry);if(g)$('eG').value=Math.round(num($('eAmt').value)*g*10)/10;amtPrev()};
+$('eG').oninput=()=>{const g=entryG(curEntry);if(g)$('eAmt').value=q3(num($('eG').value)/g);amtPrev()};
 $('eAmtSave').onclick=()=>{if(!curEntry)return;const q=amtQty();if(!(q>0)){toast('Enter an amount above 0');return}Object.assign(curEntry,amtScaled(q));save();render();open(null);toast('Amount updated')};
 $('eBlocks').onclick=ev=>{const b=ev.target.closest('[data-mv]');if(!b||!curEntry)return;moveEntry(curEntry,+b.dataset.mv);save();render();open(null);toast('Moved')};
 $('eQueue').onclick=()=>{if(!curEntry)return;if(curEntry.planned)curEntry.date=ymd(new Date());else curEntry.planned=true;save();render();open(null);toast('Queued')};
@@ -382,7 +396,7 @@ async function lookup(code){code=String(code).replace(/\D/g,'');if(!code){toast(
   const known=foods['b:'+code];if(known){showForm(known,{id:known.id,barcode:code,title:'Log food',source:'barcode'});return}
   $('scanNote').textContent='Looking up '+code+'...';let food=null,offline=false;
   try{food=await fetchOFF(code);if(!food&&code.length===12)food=await fetchOFF('0'+code)}catch(e){offline=true}
-  if(food)showForm(food,{barcode:code,title:'Check against the label',source:'barcode',note:'From a crowdsourced database. Fix anything that does not match the label; your version is what gets saved.'});
+  if(food)showForm(food,{barcode:code,title:'Check against the label',source:'barcode',note:food.calFixed?('The database listed '+food.calFixed+' calories, which cannot be right for these macros. Using '+food.calories+' from the macros instead. Check it against the label.'):'From a crowdsourced database. Fix anything that does not match the label; your version is what gets saved.'});
   else showForm({},{barcode:code,title:'New product',source:'label',note:(offline?'No connection. ':'Not in the database. ')+'Enter it from the label once; this barcode will scan instantly next time.'})}
 $('codeGo').onclick=()=>{stopScan();lookup($('codeIn').value)};
 
@@ -407,7 +421,7 @@ function renderStaples(){staples.forEach(s=>{s.items=s.items.filter(i=>foods[i.f
   $('stapleList').innerHTML=staples.length?staples.map(s=>{const t=sumEntries(s.items.map(i=>makeEntry(foods[i.foodId],i.qty,day,'','')));
     return '<div class="item" data-s="'+esc(s.id)+'"><div><div class="n">'+esc(s.name)+'</div><div class="m">'+s.items.length+' item'+(s.items.length===1?'':'s')+' · P'+t.p+' F'+t.f+' C'+t.c+'</div></div><div class="c">'+t.cal+'</div></div>'}).join(''):'<div class="empty">No staples yet. Build one from the foods in My foods.</div>'}
 function openStaple(id){const st=staples.find(s=>s.id===id);if(!st)return;
-  cur={st,rows:st.items.filter(i=>foods[i.foodId]).map(i=>{const food=foods[i.foodId],g=servingGrams(food);return {food,g,amt:g?Math.round(i.qty*g):i.qty}})};
+  cur={st,rows:st.items.filter(i=>foods[i.foodId]).map(i=>{const food=foods[i.foodId],g=gramUnit(food);return {food,g,amt:g?Math.round(i.qty*g):i.qty}})};
   $('suName').textContent=st.name;
   $('suList').innerHTML=cur.rows.map((r,k)=>'<div class="item"><div style="flex:1"><div class="n">'+esc(r.food.name)+'</div><div class="m" id="sum'+k+'"></div></div><input type="number" inputmode="decimal" step="any" data-k="'+k+'" value="'+r.amt+'" style="width:84px;flex:0 0 84px"><span style="flex:0 0 14px;color:var(--dim)">'+(r.g?'g':'×')+'</span></div>').join('');
   stapleTotals();open('sStaple')}
@@ -436,7 +450,7 @@ $('bStaples').onclick=()=>{renderStaples();open('sStaples')};
 
 /* link import: .../#add=name;P;F;C;A;cal|name;...&date=YYYY-MM-DD */
 let imp=null;
-function showImport(items){imp={blk:blockOf(nowTime()),rows:items.map(f=>{const g=servingGrams(f),q=f.qty>0?f.qty:1;return {food:f,g,amt:g?Math.round(q*g):q}})};
+function showImport(items){imp={blk:blockOf(nowTime()),rows:items.map(f=>{const g=gramUnit(f),q=f.qty>0?f.qty:1;return {food:f,g,amt:g?Math.round(q*g):q}})};
   $('iList').innerHTML=imp.rows.map((r,k)=>'<div class="item"><div style="flex:1"><div class="n">'+esc(r.food.name)+'</div><div class="m" id="isum'+k+'"></div></div><input type="number" inputmode="decimal" step="any" data-ik="'+k+'" value="'+r.amt+'" style="width:84px;flex:0 0 84px"><span style="flex:0 0 14px;color:var(--dim)">'+(r.g?'g':'×')+'</span></div>').join('');
   impDraw();open('sImport')}
 function impDraw(){const today=ymd(new Date()),live=imp.rows.filter(r=>r.amt>0).map(r=>makeEntry(r.food,rowQty(r),day,'',''));

@@ -94,3 +94,22 @@ assert.deepStrictEqual(L.parseTargets(';180;63;158'), { cal: 1919, p: 180, f: 63
 assert.strictEqual(L.parseTargets(''), null);
 assert.ok(L.summaryText(entries, '2026-11-11', { cal: 1900, p: 180, f: 63, c: 158 }).endsWith('Daily target | 1900 | 180 | 63 | 158'));
 console.log('target tests passed');
+
+// bad database calories (the Monster can: 18700 kcal listed, label says 220)
+const monster = { status: 1, product: { product_name: 'MEAN BEAN JAVA MONSTER COFFEE + ENERGY', serving_size: '1 serving (425.243 g)',
+  nutriments: { 'energy-kcal_serving': 18700, proteins_serving: 8, fat_serving: 4.5, carbohydrates_serving: 37 } } };
+const mo = L.parseOFF(monster);
+assert.strictEqual(mo.calories, 221); assert.strictEqual(mo.calFixed, 18700);
+assert.strictEqual(L.parseOFF(perServing).calFixed, undefined);
+assert.strictEqual(L.calSuspect(920, 8, 37, 4.5, 0), true);   // kJ entered as kcal
+assert.strictEqual(L.calSuspect(150, 1, 13, 0, 0), false);    // beer: alcohol calories not in the macros
+assert.strictEqual(L.calSuspect(100, 10, 0.3, 2.2, 0), false); // beef stick row: off, but not absurd
+assert.strictEqual(L.calSuspect(190, 20, 22, 7, 0), false);   // fibre / sugar alcohols
+assert.strictEqual(L.calSuspect(20, 20, 22, 7, 0), true);
+// unit for amount boxes
+assert.strictEqual(L.gramUnit({ serving: '1 serving (425.243 g)', name: 'Monster' }), 0);
+assert.strictEqual(L.gramUnit({ serving: '100 g', name: 'Chicken breast cooked (100 g)' }), 100);
+assert.strictEqual(L.gramUnit({ serving: '32.0g', name: 'Beef stick' }), 32);
+assert.strictEqual(L.gramUnit({ serving: '1 serving', name: "Kristina's discard bread (50 g)" }), 50);
+assert.strictEqual(L.gramUnit({ serving: '1 bar (60 g)', name: 'Bar' }), 0);
+console.log('sanity tests passed');
