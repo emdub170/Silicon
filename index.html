@@ -225,6 +225,8 @@ function summaryText(entries,end,tg){const w=weekSummary(entries,end),L=['Food l
   L.push('Avg of '+w.logged+' logged day'+(w.logged===1?'':'s')+' | '+[w.avg.cal,w.avg.p,w.avg.f,w.avg.c,w.avg.a].join(' | '));if(tg)L.push('Daily target | '+[tg.cal,tg.p,tg.f,tg.c].join(' | '));return L.join('\n')}
 /* stated calories that cannot be right for the macros (bad database rows, kJ entered as kcal). Loose on the high side so alcohol passes. */
 function calSuspect(cal,p,c,f,a){const m=calcCal(p,c,f,a||0);return cal>3*m+100||(m>=60&&cal<0.4*m)}
+/* far beyond anything real food can be for its macros: safe to correct without asking */
+function calAbsurd(cal,p,c,f,a){return cal>10*calcCal(p,c,f,a||0)+300}
 /* amount boxes use grams only when the food is defined by weight ("100 g", "32.0g", name ending "(50 g)"), not for "1 can (425 g)" */
 function gramUnit(food){const sv=String((food&&food.serving)||''),nm=String((food&&food.name)||'');
   return (/^\s*\d+(\.\d+)?\s*g(rams?)?\s*$/i.test(sv)||/\(\s*\d+(\.\d+)?\s*g\s*\)\s*$/i.test(nm))?servingGrams(food):0}
@@ -254,11 +256,11 @@ function parsePaste(t){t=String(t||'').trim();const i=t.indexOf('#add=');
 function servingGrams(food){const m=/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i.exec(((food&&food.serving)||'')+' | '+((food&&food.name)||''));return m?parseFloat(m[1]):0}
 const BLOCKS=['12–3 AM','3–6 AM','6–9 AM','9 AM–noon','Noon–3 PM','3–6 PM','6–9 PM','9 PM–midnight'];
 function blockOf(time){return Math.min(7,Math.max(0,Math.floor((parseInt(String(time||'').slice(0,2),10)||0)/3)))}
-if(typeof module!=='undefined')module.exports={calSuspect,gramUnit,parseTargets,parsePaste,BLOCKS,blockOf,servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
+if(typeof module!=='undefined')module.exports={calAbsurd,calSuspect,gramUnit,parseTargets,parsePaste,BLOCKS,blockOf,servingGrams,parseImport,calcCal,ymd,shiftDay,sumEntries,weekSummary,toCSV,summaryText,parseOFF,makeEntry};
 
 /* ---------- app ---------- */
 if(typeof document!=='undefined'){(function(){
-const APP_VERSION='1.10';
+const APP_VERSION='1.11';
 const mem={};
 const store={get(k,d){try{const v=localStorage.getItem(k);if(v!=null)return JSON.parse(v)}catch(e){}return k in mem?mem[k]:d},
   set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -272,6 +274,15 @@ function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';cle
 function open(id){document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));if(id)$(id).classList.add('on');if(id!=='sScan')stopScan()}
 function nowTime(){const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
 
+/* repair saved data: scanned foods whose calories are impossible for their macros, and the entries logged from them.
+   Skips foods the user has confirmed in the form since v1.11 (ok flag). Runs at start and after a restore. */
+function repair(){let nf=0,ne=0;const fixed={};
+  for(const f of Object.values(foods)){if(f.ok||!f.barcode||!calAbsurd(f.calories,f.protein_g,f.carbs_g,f.fat_g,f.alcohol_g))continue;
+    fixed[f.id]=f.calories;f.calories=calcCal(f.protein_g,f.carbs_g,f.fat_g,f.alcohol_g);nf++}
+  for(const e of entries){const old=fixed[e.foodId],q=e.servings>0?e.servings:1;
+    if(old!=null&&Math.abs(e.calories-old*q)<=Math.max(2,old*q*0.02)){e.calories=Math.round(foods[e.foodId].calories*q);ne++}
+    else if(!foods[e.foodId]&&e.source==='barcode'&&calAbsurd(e.calories,e.protein_g,e.carbs_g,e.fat_g,e.alcohol_g)){e.calories=calcCal(e.protein_g,e.carbs_g,e.fat_g,e.alcohol_g);ne++}}
+  if(nf||ne){save();setTimeout(()=>toast('Fixed impossible calories: '+nf+' food'+(nf===1?'':'s')+', '+ne+' entr'+(ne===1?'y':'ies')),400)}return nf+ne}
 function trendText(){if(!targets)return '';const w=weekSummary(eaten(),shiftDay(day,-1));if(!w.logged)return '';
   const d=(v,g,u)=>{const x=Math.round(v-g);return x===0?'on target':Math.abs(x)+u+(x<0?' under':' over')};
   return 'Previous 7 days · '+w.logged+' logged · avg '+w.avg.cal+' cal ('+d(w.avg.cal,targets.cal,'')+') · protein '+Math.round(w.avg.p)+' g ('+d(w.avg.p,targets.p,' g')+')'}
@@ -323,7 +334,7 @@ $('fSave').onclick=()=>{const name=$('fName').value.trim();if(!name){toast('Name
   const p=num($('fP').value),f=num($('fF').value),c=num($('fC').value),a=num($('fA').value);
   const cal=$('fCal').value===''?calcCal(p,c,f,a):Math.round(num($('fCal').value));
   const id=pending.id||(pending.barcode?'b:'+pending.barcode:'m:'+name.toLowerCase());
-  const food={id,name,serving:$('fServing').value.trim()||'1 serving',calories:cal,protein_g:p,fat_g:f,carbs_g:c,alcohol_g:a,recipe:$('fRecipe').checked,est:!!(foods[id]&&foods[id].est),barcode:pending.barcode||(foods[id]&&foods[id].barcode)||'',count:(foods[id]&&foods[id].count)||0,lastUsed:Date.now()};
+  const food={id,name,serving:$('fServing').value.trim()||'1 serving',calories:cal,protein_g:p,fat_g:f,carbs_g:c,alcohol_g:a,ok:true,recipe:$('fRecipe').checked,est:!!(foods[id]&&foods[id].est),barcode:pending.barcode||(foods[id]&&foods[id].barcode)||'',count:(foods[id]&&foods[id].count)||0,lastUsed:Date.now()};
   foods[id]=food;log(food,$('fQty').value,pending.source||'manual');open(null);toast('Logged')};
 
 let foodFilter='all';
@@ -412,7 +423,7 @@ $('wCopy').onclick=async()=>{const t=summaryText(eaten(),day,targets);try{await 
 $('wBackup').onclick=async()=>{if(await shareFile('silicon-backup_'+ymd(new Date())+'.json',JSON.stringify({v:1,entries,foods,staples,targets}),'application/json')){store.set('si_lastBackup',Date.now());render()}};
 $('wRestore').onclick=()=>$('wFile').click();
 $('wFile').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());if(!Array.isArray(j.entries)||typeof j.foods!=='object')throw 0;
-    const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);if(Array.isArray(j.staples)){const hs=new Set(staples.map(x=>x.id));for(const x of j.staples)if(!hs.has(x.id))staples.push(x)}if(j.targets&&!targets)targets=j.targets;save();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
+    const have=new Set(entries.map(e=>e.id));for(const e of j.entries)if(!have.has(e.id))entries.push(e);foods=Object.assign({},j.foods,foods);if(Array.isArray(j.staples)){const hs=new Set(staples.map(x=>x.id));for(const x of j.staples)if(!hs.has(x.id))staples.push(x)}if(j.targets&&!targets)targets=j.targets;save();repair();render();renderWeek();toast('Backup merged')}catch(e){toast('Not a Silicon backup file')}ev.target.value=''};
 
 /* staples: a usual meal = a named set of foods with usual amounts, adjustable per day */
 let cur=null,build=null;
@@ -486,7 +497,7 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>open(null));
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopScan()});
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 try{if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js')}catch(e){}
-render();checkLink();
+repair();render();checkLink();
 })()}
 </script>
 </body>

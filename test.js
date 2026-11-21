@@ -113,3 +113,10 @@ assert.strictEqual(L.gramUnit({ serving: '32.0g', name: 'Beef stick' }), 32);
 assert.strictEqual(L.gramUnit({ serving: '1 serving', name: "Kristina's discard bread (50 g)" }), 50);
 assert.strictEqual(L.gramUnit({ serving: '1 bar (60 g)', name: 'Bar' }), 0);
 console.log('sanity tests passed');
+
+// auto-repair threshold: only the truly impossible
+assert.strictEqual(L.calAbsurd(18700, 8, 37, 4.5, 0), true);
+assert.strictEqual(L.calAbsurd(920, 8, 37, 4.5, 0), false);  // kJ mix-up: flagged in the form, not auto-changed
+assert.strictEqual(L.calAbsurd(250, 0, 5, 0, 0), false);     // canned cocktail with no alcohol grams entered
+assert.strictEqual(L.calAbsurd(100, 0, 0, 0, 0), false);
+console.log('repair tests passed');
